@@ -122,10 +122,6 @@ python GeneDraft.py
 
 If you use GeneDraft, cite the software release and, when available, the associated preprint. Citation metadata is provided in [`CITATION.cff`](CITATION.cff).
 
-## Release preparation
-
-Repository and archiving tasks are tracked in [`GITHUB_ZENODO_RELEASE_CHECKLIST.md`](GITHUB_ZENODO_RELEASE_CHECKLIST.md).
-
 ## Next useful steps
 
 - restriction sites
