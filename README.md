@@ -4,6 +4,8 @@ GeneDraft is a local desktop workbench for rapid DNA, RNA, and protein sequence 
 
 It is designed for small-to-medium sequence tasks that are often spread across separate editors, web services, and ad hoc scripts. GeneDraft does not try to replace specialized high-throughput or genome-scale tools; its value is a local-first, editor-centered workflow for routine sequence work.
 
+![GeneDraft overview](assets/genedraft_article_figure_overview.svg)
+
 ## Author
 
 Yair Cárdenas-Conejo*1,2
@@ -14,6 +16,16 @@ Yair Cárdenas-Conejo*1,2
 Corresponding author: Yair Cárdenas-Conejo*
 
 ORCID: `0000-0002-0190-244X`
+
+## Interface Preview
+
+### Light theme
+
+![GeneDraft light theme screenshot](assets/genedraft-screenshot-light-theme.jpg)
+
+### Dark theme
+
+![GeneDraft dark theme screenshot](assets/genedraft-screenshot-dark-theme.jpg)
 
 ## What GeneDraft is for
 
@@ -107,11 +119,11 @@ python GeneDraft.py
 - License: `MIT`
 - Version described in the current draft: `1.0`
 
-If you use GeneDraft, cite the software release and, when available, the associated preprint. A draft citation file is provided in [CITATION.cff.draft](/C:/Users/yairc/OneDrive/Desktop/GeneDraft/CITATION.cff.draft).
+If you use GeneDraft, cite the software release and, when available, the associated preprint. Citation metadata is provided in [`CITATION.cff`](CITATION.cff).
 
 ## Release preparation
 
-Repository and archiving tasks are tracked in [GITHUB_ZENODO_RELEASE_CHECKLIST.md](/C:/Users/yairc/OneDrive/Desktop/GeneDraft/GITHUB_ZENODO_RELEASE_CHECKLIST.md).
+Repository and archiving tasks are tracked in [`GITHUB_ZENODO_RELEASE_CHECKLIST.md`](GITHUB_ZENODO_RELEASE_CHECKLIST.md).
 
 ## Next useful steps
 
