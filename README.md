@@ -115,7 +115,8 @@ python GeneDraft.py
 ## Availability and citation
 
 - Repository URL: `https://github.com/yaircardenas/GeneDraft`
-- Archived release DOI: `[Zenodo DOI pending]`
+- Archived release DOI: `https://doi.org/10.5281/zenodo.19445034`
+- Software concept DOI: `https://doi.org/10.5281/zenodo.19445033`
 - License: `MIT`
 - Version described in the current draft: `1.0`
 

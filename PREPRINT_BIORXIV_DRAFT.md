@@ -85,7 +85,9 @@ Project name: GeneDraft
 
 Source code repository: https://github.com/yaircardenas/GeneDraft
 
-Archived release DOI: [Zenodo DOI pending]
+Archived release DOI: https://doi.org/10.5281/zenodo.19445034
+
+Software concept DOI: https://doi.org/10.5281/zenodo.19445033
 
 Operating system support: designed for Windows, Linux, and macOS; currently tested on Windows
 
@@ -132,11 +134,11 @@ Y.C.-C. conceived the project, developed the software, curated the documentation
 
 ### Data and software availability
 
-GeneDraft source code is available under the MIT License at https://github.com/yaircardenas/GeneDraft. Archived releases are available through Zenodo at [Zenodo DOI pending].
+GeneDraft source code is available under the MIT License at https://github.com/yaircardenas/GeneDraft. Archived releases are available through Zenodo at https://doi.org/10.5281/zenodo.19445034.
 
 ## Notes for revision
 
-- Replace all pending repository, DOI, and funding metadata before submission.
+- Replace all pending funding and preprint DOI metadata before submission.
 - Add at least one figure showing the editor-centered interface and one figure showing a representative workflow.
 - If the final version includes a case study, align the example with a real use case already supported by the software, such as sequence annotation, circular-component delimitation, or translation-to-protein analysis.
 - If submission is aimed at a software-focused venue after bioRxiv, consider adding a small benchmark or usability comparison against a minimal multi-tool workflow.

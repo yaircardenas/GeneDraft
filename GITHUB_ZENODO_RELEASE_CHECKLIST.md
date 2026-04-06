@@ -65,12 +65,17 @@ This checklist is for shipping GeneDraft as a small software preprint plus a cit
 
 ## 8. Metadata still pending in this project
 
-- final GitHub repository URL
-- Zenodo DOI
 - bioRxiv DOI
 - funding statement
 - final public release notes
 - confirmation of which operating systems have been tested in practice
+
+## 8a. Current identifiers
+
+- GitHub repository: `https://github.com/yaircardenas/GeneDraft`
+- Zenodo version DOI (`v1.0.0`): `https://doi.org/10.5281/zenodo.19445034`
+- Zenodo concept DOI: `https://doi.org/10.5281/zenodo.19445033`
+- bioRxiv DOI: pending
 
 ## 9. Suggested citation block
 
@@ -80,4 +85,4 @@ Preprint:
 
 Software:
 
-[Authors]. GeneDraft (Version 1.0.0) [Computer software]. Zenodo. [doi pending].
+[Authors]. GeneDraft (Version 1.0.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.19445034.
