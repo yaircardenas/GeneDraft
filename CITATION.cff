@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use GeneDraft, please cite the software release and, when available, the associated preprint."
+title: "GeneDraft"
+version: "1.0.0"
+type: software
+authors:
+  - family-names: "Cardenas-Conejo"
+    given-names: "Yair"
+    affiliation: "University Center for Biomedical Research, University of Colima; Secretariat of Science, Humanities, Technology and Innovation, Mexico"
+    email: "ycardenasco@secihti.mx"
+license: "MIT"
+abstract: "GeneDraft is a local desktop workbench for rapid sequence editing, annotation, and exploratory DNA, RNA, and protein analysis."
+keywords:
+  - sequence analysis
+  - sequence editing
+  - annotation
+  - ORF detection
+  - BLAST
+  - FASTA
+  - GenBank
+  - molecular biology
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Cardenas-Conejo"
+      given-names: "Yair"
+  title: "GeneDraft: a local sequence workbench for rapid editing, annotation, and exploratory molecular analysis"
+  journal: "bioRxiv"
+  year: 2026

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+
+generated_structures/
+blast_db/
+
+genedraft_session.json
+genedraft_settings.json
+
+.claude/
+.tmp-sciagent-skills/
+.sglock
+
+*.docx

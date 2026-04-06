@@ -1,0 +1,2 @@
+biopython>=1.84
+ViennaRNA>=2.7
