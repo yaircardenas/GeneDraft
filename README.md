@@ -4,6 +4,17 @@ GeneDraft is a local desktop workbench for rapid DNA, RNA, and protein sequence 
 
 It is designed for small-to-medium sequence tasks that are often spread across separate editors, web services, and ad hoc scripts. GeneDraft does not try to replace specialized high-throughput or genome-scale tools; its value is a local-first, editor-centered workflow for routine sequence work.
 
+## Author
+
+Yair Cárdenas-Conejo*1,2
+
+1. Secretaría de Ciencia, Humanidades, Tecnología e Innovación, Gobierno de México, Ciudad de México, México
+2. Centro Universitario de Investigaciones Biomédicas, Universidad de Colima, Colima, Colima, México
+
+Corresponding author: Yair Cárdenas-Conejo*
+
+ORCID: `0000-0002-0190-244X`
+
 ## What GeneDraft is for
 
 - quick inspection of DNA, RNA, or protein sequences in one window

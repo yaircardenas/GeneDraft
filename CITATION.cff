@@ -4,10 +4,11 @@ title: "GeneDraft"
 version: "1.0.0"
 type: software
 authors:
-  - family-names: "Cardenas-Conejo"
+  - family-names: "Cárdenas-Conejo"
     given-names: "Yair"
-    affiliation: "University Center for Biomedical Research, University of Colima; Secretariat of Science, Humanities, Technology and Innovation, Mexico"
+    affiliation: "Secretaría de Ciencia, Humanidades, Tecnología e Innovación, Gobierno de México, Ciudad de México, México; Centro Universitario de Investigaciones Biomédicas, Universidad de Colima, Colima, Colima, México"
     email: "ycardenasco@secihti.mx"
+    orcid: "https://orcid.org/0000-0002-0190-244X"
 license: "MIT"
 abstract: "GeneDraft is a local desktop workbench for rapid sequence editing, annotation, and exploratory DNA, RNA, and protein analysis."
 keywords:
@@ -22,7 +23,7 @@ keywords:
 preferred-citation:
   type: article
   authors:
-    - family-names: "Cardenas-Conejo"
+    - family-names: "Cárdenas-Conejo"
       given-names: "Yair"
   title: "GeneDraft: a local sequence workbench for rapid editing, annotation, and exploratory molecular analysis"
   journal: "bioRxiv"

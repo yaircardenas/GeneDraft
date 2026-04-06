@@ -10,18 +10,20 @@ GeneDraft: a local sequence workbench for rapid editing, annotation, and explora
 
 ## Authors
 
-Yair Cardenas-Conejo
+Yair Cárdenas-Conejo*1,2
 
 ## Affiliations
 
-1. University Center for Biomedical Research, University of Colima, Colima, Mexico
-2. Secretariat of Science, Humanities, Technology and Innovation, Mexico
+1. Secretaría de Ciencia, Humanidades, Tecnología e Innovación, Gobierno de México, Ciudad de México, México
+2. Centro Universitario de Investigaciones Biomédicas, Universidad de Colima, Colima, Colima, México
 
 ## Corresponding author
 
-Yair Cardenas-Conejo
+Yair Cárdenas-Conejo*
 
 Email: ycardenasco@secihti.mx
+
+ORCID: 0000-0002-0190-244X
 
 ## Abstract
 

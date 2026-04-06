@@ -12,12 +12,15 @@ OUTPUT_PATH = Path("GeneDraft_bioRxiv_preprint_draft.docx")
 
 
 TITLE = "GeneDraft: a lightweight desktop workbench for DNA, RNA, and protein sequence editing and exploratory analysis"
-AUTHOR = "Yair Cardenas-Conejo"
+AUTHOR = "Yair Cárdenas-Conejo*1,2"
 AFFILIATIONS = [
-    "1. University Center for Biomedical Research, University of Colima, Colima, Mexico",
-    "2. Secretariat of Science, Humanities, Technology and Innovation, Mexico",
+    "1. Secretaría de Ciencia, Humanidades, Tecnología e Innovación, Gobierno de México, Ciudad de México, México",
+    "2. Centro Universitario de Investigaciones Biomédicas, Universidad de Colima, Colima, Colima, México",
 ]
-CORRESPONDING = "Corresponding author: Yair Cardenas-Conejo (ycardenasco@secihti.mx)"
+CORRESPONDING = (
+    "Corresponding Author: Yair Cárdenas-Conejo* (ycardenasco@secihti.mx)\n"
+    "ORCID: 0000-0002-0190-244X"
+)
 
 ABSTRACT = (
     "GeneDraft is a local desktop workbench for small-to-medium molecular sequence tasks "
