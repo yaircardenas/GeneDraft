@@ -83,7 +83,7 @@ At present, the software is designed for cross-platform desktop use but has been
 
 Project name: GeneDraft
 
-Source code repository: [GitHub URL pending]
+Source code repository: https://github.com/yaircardenas/GeneDraft
 
 Archived release DOI: [Zenodo DOI pending]
 
@@ -132,7 +132,7 @@ Y.C.-C. conceived the project, developed the software, curated the documentation
 
 ### Data and software availability
 
-GeneDraft source code is available under the MIT License at [GitHub URL pending]. Archived releases are available through Zenodo at [Zenodo DOI pending].
+GeneDraft source code is available under the MIT License at https://github.com/yaircardenas/GeneDraft. Archived releases are available through Zenodo at [Zenodo DOI pending].
 
 ## Notes for revision
 

@@ -263,12 +263,12 @@ CAPABILITIES = [
 ]
 
 PENDING_ITEMS = [
-    "Source code repository: [GitHub URL pending]",
+    "Source code repository: https://github.com/yaircardenas/GeneDraft",
     "Archived release DOI: [Zenodo DOI pending]",
     "Operating system support: designed for Windows, Linux, and macOS; currently tested on Windows",
     "Funding: [Funding statement pending]",
     "Data and software availability: GeneDraft source code is available under the MIT License at "
-    "[GitHub URL pending]. Archived releases are available through Zenodo at [Zenodo DOI pending].",
+    "https://github.com/yaircardenas/GeneDraft. Archived releases are available through Zenodo at [Zenodo DOI pending].",
 ]
 
 REFERENCES = [

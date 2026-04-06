@@ -102,7 +102,7 @@ python GeneDraft.py
 
 ## Availability and citation
 
-- Repository URL: `[GitHub URL pending]`
+- Repository URL: `https://github.com/yaircardenas/GeneDraft`
 - Archived release DOI: `[Zenodo DOI pending]`
 - License: `MIT`
 - Version described in the current draft: `1.0`

@@ -11,6 +11,8 @@ authors:
     orcid: "https://orcid.org/0000-0002-0190-244X"
 license: "MIT"
 abstract: "GeneDraft is a local desktop workbench for rapid sequence editing, annotation, and exploratory DNA, RNA, and protein analysis."
+repository-code: "https://github.com/yaircardenas/GeneDraft"
+url: "https://github.com/yaircardenas/GeneDraft"
 keywords:
   - sequence analysis
   - sequence editing

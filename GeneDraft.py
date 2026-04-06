@@ -43,7 +43,7 @@ from sequence_tools import (
 
 APP_VERSION = "1.0"
 APP_RELEASE_YEAR = "2026"
-APP_REPOSITORY_URL = "Pending GitHub repository"
+APP_REPOSITORY_URL = "https://github.com/yaircardenas/GeneDraft"
 APP_AUTHOR = "Yair Cárdenas-Conejo"
 APP_CONTACT_EMAIL = "ycardenasco@secihti.mx"
 APP_ORCID = "0000-0002-0190-244X"
