@@ -9,7 +9,8 @@ import subprocess
 import sys
 import tempfile
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+import tkinter.font as tkfont
+from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlencode
 import webbrowser
 
@@ -17,11 +18,13 @@ from sequence_tools import (
     CircularCandidate,
     MotifHit,
     OrfHit,
+    RestrictionSiteHit,
     SequenceFeature,
     SequenceSummary,
     clean_sequence,
     export_circular_map_svg,
     export_linear_map_svg,
+    find_restriction_sites,
     find_motif_hits,
     find_orfs,
     find_circular_candidates,
@@ -34,6 +37,7 @@ from sequence_tools import (
     sanitize_fasta_for_blast,
     save_fasta,
     save_genbank,
+    resolve_restriction_enzyme_name,
     summarize_sequence,
     translate_frames,
     analyze_protein,
@@ -58,6 +62,13 @@ APP_AFFILIATION = (
 APP_DESCRIPTION = (
     "GeneDraft is a local desktop workbench for DNA, RNA, and protein sequence editing "
     "and exploratory analysis."
+)
+MONOSPACE_FONT_CANDIDATES = (
+    "Cascadia Code",
+    "Cascadia Mono",
+    "Consolas",
+    "Lucida Console",
+    "Courier New",
 )
 
 
@@ -167,6 +178,7 @@ class GeneDraftApp:
 
         self.editor_font_size = 15
         self.results_font_size = 12
+        self.mono_font_family = self._resolve_monospace_font_family()
         self.sequence_name = tk.StringVar(value="sequence_1")
         self.length_var    = tk.StringVar(value="Length: 0")
         self.type_var      = tk.StringVar(value="Type: Empty")
@@ -189,9 +201,9 @@ class GeneDraftApp:
         self.session_path = Path.cwd() / "genedraft_session.json"
         self.sequence_name.trace_add("write", self._on_sequence_name_changed)
         self.feature_type_options = (
-            "misc_feature", "gene", "CDS", "promoter", "terminator",
-            "regulatory", "primer_bind", "repeat_region", "misc_binding",
-            "rep_origin", "exon", "intron",
+            "misc_feature", "gene", "CDS", "rep_origin", "restriction_site",
+            "promoter", "terminator", "regulatory", "primer_bind",
+            "repeat_region", "misc_binding", "exon", "intron",
         )
         self.feature_strand_label_to_value = {
             "Forward (+)": "+",
@@ -208,6 +220,7 @@ class GeneDraftApp:
             "motif", "motif_focus", "invalid",
             "orf_plus", "orf_minus", "orf_focus",
             "circular_candidate", "circular_focus", "feature_focus",
+            "restriction", "restriction_focus",
         }
         self._feature_colors = cycle([
             "#93c5fd",   # sky blue
@@ -235,6 +248,7 @@ class GeneDraftApp:
         self._busy_status_message: str | None = None
         self._results_secondary_structure_export: SecondaryStructureExportState | None = None
         self._results_secondary_svg_menu_index: int | None = None
+        self._results_link_tags: list[str] = []
 
         self._load_app_settings()
         self._configure_styles()
@@ -292,6 +306,8 @@ class GeneDraftApp:
             "tag_orf_focus":    "#1E40AF",
             "tag_circ":         "#0A2540",
             "tag_circ_foc":     "#0E4272",
+            "tag_restriction":  "#3F6212",
+            "tag_restriction_focus": "#65A30D",
             "tag_invalid":      "#4A0E0E",
             "tag_feature":      "#0D2B50",
             "tag_feature_focus":"#92400E",
@@ -334,10 +350,29 @@ class GeneDraftApp:
             "tag_orf_focus":    "#BAE6FD",
             "tag_circ":         "#E0F2FE",
             "tag_circ_foc":     "#7DD3FC",
+            "tag_restriction":  "#DCFCE7",
+            "tag_restriction_focus": "#86EFAC",
             "tag_invalid":      "#FECACA",
             "tag_feature":      "#DBEAFE",
             "tag_feature_focus":"#FBBF24",
         }
+
+    def _resolve_monospace_font_family(self) -> str:
+        try:
+            available = {name.casefold(): name for name in tkfont.families(self.root)}
+        except tk.TclError:
+            available = {}
+        for candidate in MONOSPACE_FONT_CANDIDATES:
+            match = available.get(candidate.casefold())
+            if match:
+                return match
+        try:
+            return str(tkfont.nametofont("TkFixedFont").actual("family"))
+        except tk.TclError:
+            return "Courier New"
+
+    def _mono_font(self, size: int) -> tuple[str, int]:
+        return (self.mono_font_family, size)
 
     # ------------------------------------------------------------------ styles
 
@@ -554,6 +589,40 @@ class GeneDraftApp:
             self.root.iconphoto(True, self.app_icon)
         except Exception:
             self.app_icon = None
+
+    def _apply_window_icon(self, window: tk.Misc) -> None:
+        assets_dir = Path(__file__).resolve().parent / "assets"
+        icon_path = assets_dir / "genedraft_app.ico"
+        if icon_path.exists():
+            try:
+                window.iconbitmap(default=str(icon_path))
+            except Exception:
+                pass
+        if getattr(self, "app_icon", None) is not None:
+            try:
+                window.iconphoto(True, self.app_icon)
+            except Exception:
+                pass
+
+    def _apply_dark_title_bar(self, window: tk.Misc) -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            window.update_idletasks()
+            hwnd = window.winfo_id()
+            value = ctypes.c_int(1)
+            size = ctypes.sizeof(value)
+            for attribute in (20, 19):
+                try:
+                    ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), size)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    def _configure_dialog_window(self, dialog: tk.Toplevel) -> None:
+        self._apply_window_icon(dialog)
+        dialog.after(0, lambda win=dialog: self._apply_dark_title_bar(win))
 
     def _load_brand_mark_image(self) -> tk.PhotoImage | None:
         mark_path = Path(__file__).resolve().parent / "assets" / "genedraft_mark.png"
@@ -1070,10 +1139,14 @@ class GeneDraftApp:
         m.add_command(label="Secondary Structure    Ctrl+Alt+S", command=self.show_secondary_structure_analysis)
         m.add_command(label="Protein Properties     Ctrl+P", command=self.show_protein_analysis)
         m.add_separator()
+        m.add_command(label="Restriction Enzymes: All", command=self.show_all_restriction_sites)
+        m.add_command(label="Restriction Enzymes: Unique", command=self.show_unique_restriction_sites)
+        m.add_command(label="Restriction Enzymes: Double", command=self.show_double_restriction_sites)
+        m.add_command(label="Find Restriction Enzyme...", command=self.find_restriction_enzyme)
+        m.add_separator()
         m.add_command(label="Circularize Selection", command=self.circularize_selection)
         m.add_command(label="Mark Component", command=self.mark_current_component)
         m.add_command(label="Crop Component", command=self.crop_to_current_component)
-        m.add_separator()
         m.add_command(label="Clear Highlights       Esc", command=self.clear_analysis_marks)
 
         m = menu("Features")
@@ -1142,6 +1215,14 @@ class GeneDraftApp:
         C = self.colors
         sep = tk.Frame(parent, width=1, bg=C["toolbar_sep"])
         sep.pack(side="left", fill="y", padx=6, pady=4)
+
+    def _show_toolbar_menu(self, button: tk.Widget, menu: tk.Menu) -> None:
+        x = button.winfo_rootx()
+        y = button.winfo_rooty() + button.winfo_height()
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
 
     # ------------------------------------------------------------------ theme switching
 
@@ -1233,6 +1314,8 @@ class GeneDraftApp:
         self.sequence_text.tag_configure("orf_focus",           background=C["tag_orf_focus"], foreground=orf_focus_fg)
         self.sequence_text.tag_configure("circular_candidate",  background=C["tag_circ"])
         self.sequence_text.tag_configure("circular_focus",      background=C["tag_circ_foc"])
+        self.sequence_text.tag_configure("restriction",         background=C["tag_restriction"])
+        self.sequence_text.tag_configure("restriction_focus",   background=C["tag_restriction_focus"], foreground=C["text"])
         self.sequence_text.tag_configure("feature_focus",       background=C["tag_feature_focus"], foreground=C["text"])
         # Keep the built-in selection tag on top so it is always visible over other tags
         self.sequence_text.tag_configure("sel",
@@ -1272,6 +1355,27 @@ class GeneDraftApp:
         # Analysis
         tb("Find Motif", self.search_motif)
         tb("Find ORFs", self.show_orfs)
+        restriction_menu = tk.Menu(
+            toolbar,
+            tearoff=0,
+            bg=C["surface"],
+            fg=C["text"],
+            activebackground=C["accent_soft"],
+            activeforeground=C["accent_dark"],
+            font=("Segoe UI Variable Text", 11),
+        )
+        self._all_menus.append(restriction_menu)
+        restriction_menu.add_command(label="All cutters", command=self.show_all_restriction_sites)
+        restriction_menu.add_command(label="Unique cutters", command=self.show_unique_restriction_sites)
+        restriction_menu.add_command(label="Double cutters", command=self.show_double_restriction_sites)
+        restriction_menu.add_separator()
+        restriction_menu.add_command(label="Find enzyme...", command=self.find_restriction_enzyme)
+        restriction_button = self._toolbar_btn(
+            toolbar,
+            "Restriction",
+            lambda: self._show_toolbar_menu(restriction_button, restriction_menu),
+        )
+        restriction_button.pack(side="left", padx=1, pady=3)
         tb("RNA Fold", self.show_secondary_structure_analysis)
         tb("Protein Analysis", self.show_protein_analysis)
         tb("Circularize", self.circularize_selection)
@@ -1392,7 +1496,7 @@ class GeneDraftApp:
             editor_frame,
             wrap="none",
             undo=True,
-            font=("Cascadia Code", self.editor_font_size),
+            font=self._mono_font(self.editor_font_size),
             bg=self.colors["surface"],
             fg=self.colors["text"],
             insertbackground=self.colors["accent"],
@@ -1450,7 +1554,7 @@ class GeneDraftApp:
         self.results_text = tk.Text(
             results_frame,
             wrap="word",
-            font=("Cascadia Code", self.results_font_size),
+            font=self._mono_font(self.results_font_size),
             bg=self.colors["surface"],
             fg=self.colors["text"],
             selectbackground=self.colors["selection_bg"],
@@ -1864,23 +1968,29 @@ class GeneDraftApp:
     # ------------------------------------------------------------------ BLAST results window
 
     def _make_dialog_header(self, dialog: tk.Toplevel, title: str, subtitle: str = "") -> None:
-        """Dark header with a thin left accent bar."""
+        """Compact dark header shared by modal and document windows."""
         C = self.colors
-        # Outer frame — dark surface with bottom border line
         outer = tk.Frame(dialog, bg=C["surface_alt"])
         outer.grid(row=0, column=0, sticky="ew")
-        # Thin left accent bar
-        tk.Frame(outer, bg=C["accent"], width=4).pack(side="left", fill="y")
-        # Content area
-        inner = tk.Frame(outer, bg=C["surface_alt"], padx=16, pady=12)
-        inner.pack(side="left", fill="both", expand=True)
-        tk.Label(inner, text=title, bg=C["surface_alt"], fg=C["text"],
-                 font=("Segoe UI Variable Text Semibold", 13)).pack(anchor="w")
+        outer.columnconfigure(0, weight=1)
+        inner = tk.Frame(outer, bg=C["surface_alt"], padx=16, pady=8)
+        inner.grid(row=0, column=0, sticky="ew")
+        tk.Label(
+            inner,
+            text=title,
+            bg=C["surface_alt"],
+            fg=C["text"],
+            font=("Segoe UI Variable Text Semibold", 11),
+        ).pack(anchor="w")
         if subtitle:
-            tk.Label(inner, text=subtitle, bg=C["surface_alt"], fg=C["accent_dark"],
-                     font=("Segoe UI Variable Text", 10)).pack(anchor="w", pady=(2, 0))
-        # Bottom separator line
-        tk.Frame(dialog, bg=C["border"], height=1).grid(row=0, column=0, sticky="sew")
+            tk.Label(
+                inner,
+                text=subtitle,
+                bg=C["surface_alt"],
+                fg=C["muted"],
+                font=("Segoe UI Variable Text", 8),
+            ).pack(anchor="w", pady=(1, 0))
+        tk.Frame(outer, bg=C["border"], height=1).grid(row=1, column=0, sticky="ew")
 
     def _ask_confirmation_dialog(
         self,
@@ -1894,6 +2004,7 @@ class GeneDraftApp:
         C = self.colors
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
+        self._configure_dialog_window(dialog)
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -1943,10 +2054,114 @@ class GeneDraftApp:
         self.root.wait_window(dialog)
         return bool(result["value"])
 
+    def _create_modal_dialog(
+        self,
+        title: str,
+        heading: str,
+        subtitle: str = "",
+        *,
+        padding: tuple[int, int, int, int] = (22, 18, 22, 18),
+        min_width: int | None = None,
+    ) -> tuple[tk.Toplevel, ttk.Frame]:
+        C = self.colors
+        dialog = tk.Toplevel(self.root)
+        dialog.title(title)
+        self._configure_dialog_window(dialog)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.configure(bg=C["bg"])
+        dialog.columnconfigure(0, weight=1)
+        if min_width is not None:
+            dialog.minsize(min_width, 0)
+
+        self._make_dialog_header(dialog, heading, subtitle)
+
+        container = ttk.Frame(dialog, style="Card.TFrame", padding=padding)
+        container.grid(row=1, column=0, sticky="nsew", padx=14, pady=14)
+        container.columnconfigure(0, weight=1)
+        return dialog, container
+
+    def _show_modal_dialog(self, dialog: tk.Toplevel, focus_widget: tk.Widget | None = None) -> None:
+        dialog.update_idletasks()
+        dialog.geometry(f"+{self.root.winfo_rootx() + 140}+{self.root.winfo_rooty() + 140}")
+        dialog.lift()
+        dialog.focus_force()
+        if focus_widget is not None:
+            focus_widget.focus_set()
+        self.root.wait_window(dialog)
+
+    def _prompt_text_input_dialog(
+        self,
+        *,
+        title: str,
+        heading: str,
+        subtitle: str,
+        field_label: str,
+        action_label: str,
+        helper_text: str = "",
+        initial_value: str = "",
+        monospace: bool = False,
+        entry_width: int = 30,
+    ) -> str | None:
+        C = self.colors
+        dialog, container = self._create_modal_dialog(title, heading, subtitle, min_width=500)
+
+        ttk.Label(container, text=field_label, style="SectionHead.TLabel").grid(row=0, column=0, sticky="w")
+
+        value_var = tk.StringVar(value=initial_value)
+        entry = tk.Entry(
+            container,
+            textvariable=value_var,
+            font=self._mono_font(13) if monospace else ("Segoe UI Variable Text", 11),
+            bg=C["surface"],
+            fg=C["text"],
+            insertbackground=C["accent"],
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=C["border"],
+            highlightcolor=C["accent"],
+            width=entry_width,
+        )
+        entry.grid(row=1, column=0, sticky="ew", ipady=6, pady=(6, 0))
+
+        next_row = 2
+        if helper_text:
+            ttk.Label(container, text=helper_text, style="Muted.TLabel").grid(
+                row=next_row, column=0, sticky="w", pady=(10, 0)
+            )
+            next_row += 1
+
+        buttons = ttk.Frame(container, style="Card.TFrame")
+        buttons.grid(row=next_row, column=0, sticky="e", pady=(20, 0))
+
+        result: list[str] = []
+
+        def submit() -> None:
+            value = value_var.get().strip()
+            if value:
+                result.append(value)
+            dialog.destroy()
+
+        def cancel() -> None:
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Cancel", command=cancel, style="Action.TButton").grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(buttons, text=action_label, command=submit, style="Primary.TButton").grid(row=0, column=1)
+
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        dialog.bind("<Escape>", lambda _event: cancel())
+        dialog.bind("<Return>", lambda _event: submit())
+        if initial_value:
+            entry.selection_range(0, tk.END)
+        self._show_modal_dialog(dialog, focus_widget=entry)
+        return result[0] if result else None
+
     def _show_blast_results_window(self, title: str, text: str) -> None:
         C = self.colors
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
+        self._configure_dialog_window(dialog)
         dialog.geometry("1220x760")
         dialog.minsize(900, 560)
         dialog.configure(bg=C["bg"])
@@ -1967,7 +2182,7 @@ class GeneDraftApp:
 
         viewer = tk.Text(
             text_frame, wrap="none",
-            font=("Cascadia Code", 11),
+            font=self._mono_font(11),
             bg=C["surface"], fg=C["text"],
             insertbackground=C["accent"],
             selectbackground=C["selection_bg"],
@@ -2013,6 +2228,7 @@ class GeneDraftApp:
         C = self.colors
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
+        self._configure_dialog_window(dialog)
         dialog.geometry("1080x720")
         dialog.minsize(860, 520)
         dialog.configure(bg=C["bg"])
@@ -2553,6 +2769,9 @@ class GeneDraftApp:
         self._clean_index_map_cache = None
         self.sequence_text.delete("1.0", tk.END)
         self.sequence_text.insert("1.0", text)
+        self.sequence_text.tag_remove(tk.SEL, "1.0", tk.END)
+        self.sequence_text.mark_set(tk.INSERT, "1.0")
+        self.sequence_text.see("1.0")
         self.sequence_text.edit_modified(False)
         self._internal_edit = False
         self._refresh_summary()
@@ -2570,8 +2789,17 @@ class GeneDraftApp:
     ) -> None:
         self._results_secondary_structure_export = secondary_structure_export
         self.results_text.configure(state="normal")
+        for tag_name in self._results_link_tags:
+            try:
+                self.results_text.tag_delete(tag_name)
+            except tk.TclError:
+                pass
+        self._results_link_tags.clear()
+        self.results_text.configure(cursor="")
         self.results_text.delete("1.0", tk.END)
         self.results_text.insert("1.0", text)
+        self.results_text.tag_remove(tk.SEL, "1.0", tk.END)
+        self.results_text.mark_set(tk.INSERT, "1.0")
         self.results_text.configure(state="disabled")
 
     def _get_orf_min_length(self) -> int | None:
@@ -2652,6 +2880,7 @@ class GeneDraftApp:
         C = self.colors
         dialog = tk.Toplevel(self.root)
         dialog.title("Configure BLAST DB")
+        self._configure_dialog_window(dialog)
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -2847,6 +3076,7 @@ class GeneDraftApp:
         C = self.colors
         dialog = tk.Toplevel(self.root)
         dialog.title("Build BLAST DB")
+        self._configure_dialog_window(dialog)
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -3120,14 +3350,24 @@ class GeneDraftApp:
         if summary.length <= 0:
             messagebox.showinfo("No sequence", "No sequence is loaded.")
             return
-        position = simpledialog.askinteger(
-            "Go to position",
-            f"Target position (1-{summary.length}):",
-            initialvalue=self._get_insert_nt_position(),
-            minvalue=1,
-            maxvalue=summary.length,
+        position_text = self._prompt_text_input_dialog(
+            title="Go to Position",
+            heading="Go to sequence position",
+            subtitle="Jump directly to a nucleotide or amino-acid coordinate in the editor.",
+            field_label="Position",
+            action_label="Go",
+            helper_text=f"Enter a value between 1 and {summary.length}.",
+            initial_value=str(self._get_insert_nt_position()),
         )
-        if position is None:
+        if position_text is None:
+            return
+        try:
+            position = int(position_text)
+        except ValueError:
+            messagebox.showwarning("Invalid value", "Enter a valid integer position.")
+            return
+        if not 1 <= position <= summary.length:
+            messagebox.showwarning("Out of range", f"Position must be between 1 and {summary.length}.")
             return
         self._scroll_to_nt(position)
         self._set_results(f"Direct navigation.\n\nCurrent position: {position}")
@@ -3425,6 +3665,8 @@ class GeneDraftApp:
         self.sequence_text.tag_raise("orf_minus")
         self.sequence_text.tag_raise("circular_candidate")
         self.sequence_text.tag_raise("circular_focus")
+        self.sequence_text.tag_raise("restriction")
+        self.sequence_text.tag_raise("restriction_focus")
         self.sequence_text.tag_raise("orf_focus")
         self.sequence_text.tag_raise("invalid")
         self.sequence_text.tag_raise("feature_focus")
@@ -3524,19 +3766,106 @@ class GeneDraftApp:
         self.search_index   = 0 if matches else -1
         self.search_label   = label
 
+    def _build_restriction_search_summary(self) -> str:
+        grouped: dict[str, tuple[str, list[int]]] = {}
+        for match in self.search_matches:
+            hit = match.payload
+            if not isinstance(hit, RestrictionSiteHit):
+                continue
+            if hit.enzyme_name not in grouped:
+                grouped[hit.enzyme_name] = (hit.recognition_site, [])
+            grouped[hit.enzyme_name][1].append(hit.cut_position)
+
+        if not grouped:
+            return ""
+
+        lines = ["Detected enzymes and cut positions"]
+        for enzyme_name in sorted(grouped, key=str.casefold):
+            recognition_site, positions = grouped[enzyme_name]
+            ordered_positions = sorted(set(positions))
+            cut_label = "cut" if len(ordered_positions) == 1 else "cuts"
+            lines.append(
+                f"- {enzyme_name} ({recognition_site}): {', '.join(str(position) for position in ordered_positions)} "
+                f"[{len(ordered_positions)} {cut_label}]"
+            )
+        return "\n".join(lines)
+
+    def _activate_restriction_summary_enzyme(self, enzyme_name: str) -> None:
+        enzyme_key = str(enzyme_name or "").casefold()
+        for index, match in enumerate(self.search_matches):
+            hit = match.payload
+            if isinstance(hit, RestrictionSiteHit) and hit.enzyme_name.casefold() == enzyme_key:
+                self.search_index = index
+                self._focus_current_search_hit()
+                return
+
+    def _decorate_restriction_summary_links(self) -> None:
+        summary_lines = self._build_restriction_search_summary().splitlines()
+        if len(summary_lines) <= 1:
+            return
+
+        self.results_text.configure(state="normal")
+        for line_text in summary_lines[1:]:
+            if not line_text.startswith("- "):
+                continue
+            enzyme_name = line_text[2:].split(" (", 1)[0].strip()
+            if not enzyme_name:
+                continue
+            start_index = self.results_text.search(line_text, "1.0", stopindex=tk.END)
+            if not start_index:
+                continue
+            end_index = self.results_text.index(f"{start_index}+{len(line_text)}c")
+            tag_name = f"results_link_{len(self._results_link_tags)}"
+            self._results_link_tags.append(tag_name)
+            self.results_text.tag_add(tag_name, start_index, end_index)
+            self.results_text.tag_configure(
+                tag_name,
+                foreground=self.colors["accent_dark"],
+                underline=True,
+            )
+            self.results_text.tag_bind(
+                tag_name,
+                "<Button-1>",
+                lambda _event, enzyme=enzyme_name: self._activate_restriction_summary_enzyme(enzyme),
+            )
+            self.results_text.tag_bind(
+                tag_name,
+                "<Enter>",
+                lambda _event: self.results_text.configure(cursor="hand2"),
+            )
+            self.results_text.tag_bind(
+                tag_name,
+                "<Leave>",
+                lambda _event: self.results_text.configure(cursor=""),
+            )
+        self.results_text.configure(state="disabled")
+
     def _render_current_search_hit(self) -> None:
         if not self.search_matches or self.search_index < 0:
             return
         match = self.search_matches[self.search_index]
         position_line = f"Result {self.search_index + 1} of {len(self.search_matches)}"
-        text = (
-            f"{self.search_label}\n\n"
-            f"{position_line}\n"
-            f"{match.title}\n"
-            f"Range: {match.start_nt}-{match.end_nt}\n\n"
-            f"{match.details}"
-        )
-        self._set_results(text.rstrip())
+        if match.kind == "restriction":
+            summary_text = self._build_restriction_search_summary()
+            text = (
+                f"{self.search_label}\n\n"
+                f"{position_line}\n"
+                f"{match.title}\n"
+                f"Range: {match.start_nt}-{match.end_nt}\n\n"
+                f"{match.details}\n\n"
+                f"{summary_text}"
+            )
+            self._set_results(text.rstrip())
+            self._decorate_restriction_summary_links()
+        else:
+            text = (
+                f"{self.search_label}\n\n"
+                f"{position_line}\n"
+                f"{match.title}\n"
+                f"Range: {match.start_nt}-{match.end_nt}\n\n"
+                f"{match.details}"
+            )
+            self._set_results(text.rstrip())
 
     def _get_current_search_match(self) -> SearchMatch | None:
         if not self.search_matches or self.search_index < 0:
@@ -3574,6 +3903,10 @@ class GeneDraftApp:
                 self._normalize_feature_strand(match.payload.strand),
             )
 
+        if match.kind == "restriction" and isinstance(match.payload, RestrictionSiteHit):
+            enzyme_name = match.payload.enzyme_name.strip() or default_label
+            return (f"{enzyme_name}_site", "restriction_site", default_strand)
+
         return default_label, default_type, default_strand
 
     def _focus_current_search_hit(self) -> None:
@@ -3598,6 +3931,13 @@ class GeneDraftApp:
             for current in self.search_matches:
                 self._highlight_nt_range(current.start_nt, current.end_nt, "circular_candidate")
             self._highlight_nt_range(match.start_nt, match.end_nt, "circular_focus")
+        elif match.kind == "restriction" and isinstance(match.payload, RestrictionSiteHit):
+            active_enzyme = match.payload.enzyme_name.casefold()
+            for current in self.search_matches:
+                current_hit = current.payload
+                if isinstance(current_hit, RestrictionSiteHit) and current_hit.enzyme_name.casefold() == active_enzyme:
+                    self._highlight_nt_range(current.start_nt, current.end_nt, "restriction")
+            self._highlight_nt_range(match.start_nt, match.end_nt, "restriction_focus")
 
         self._select_nt_range(match.start_nt, match.end_nt)
         self._scroll_to_nt(match.start_nt)
@@ -3606,14 +3946,14 @@ class GeneDraftApp:
 
     def show_next_search_hit(self) -> None:
         if not self.search_matches:
-            messagebox.showinfo("No results", "Run a motif search, ORF search, or circularization first.")
+            messagebox.showinfo("No results", "Run a motif search, ORF search, restriction analysis, or circularization first.")
             return
         self.search_index = (self.search_index + 1) % len(self.search_matches)
         self._focus_current_search_hit()
 
     def show_previous_search_hit(self) -> None:
         if not self.search_matches:
-            messagebox.showinfo("No results", "Run a motif search, ORF search, or circularization first.")
+            messagebox.showinfo("No results", "Run a motif search, ORF search, restriction analysis, or circularization first.")
             return
         self.search_index = (self.search_index - 1) % len(self.search_matches)
         self._focus_current_search_hit()
@@ -3627,10 +3967,13 @@ class GeneDraftApp:
     def _get_ncbi_email(self) -> str:
         if getattr(self, "_ncbi_email", ""):
             return self._ncbi_email
-        email = simpledialog.askstring(
-            "NCBI Email",
-            "NCBI requires an email for database access.\nEnter your email (saved for future use):",
-            parent=self.root,
+        email = self._prompt_text_input_dialog(
+            title="NCBI Email",
+            heading="NCBI contact email",
+            subtitle="Required only for accession retrieval from NCBI.",
+            field_label="Email",
+            action_label="Save email",
+            helper_text="Enter the email address that should be stored and reused for future NCBI requests.",
         )
         if email and email.strip():
             self._ncbi_email = email.strip()
@@ -3639,10 +3982,13 @@ class GeneDraftApp:
         return ""
 
     def fetch_accession_dialog(self) -> None:
-        accession = simpledialog.askstring(
-            "Fetch by Accession",
-            "Enter NCBI accession number:\n(e.g.  NM_007294  ·  NP_001254  ·  EU490707  ·  P04637)",
-            parent=self.root,
+        accession = self._prompt_text_input_dialog(
+            title="Fetch by Accession",
+            heading="Fetch sequence from NCBI",
+            subtitle="Load a record directly into the editor by accession number.",
+            field_label="Accession",
+            action_label="Fetch",
+            helper_text="Examples: NM_007294  |  NP_001254  |  EU490707  |  P04637",
         )
         if not accession or not accession.strip():
             return
@@ -4113,75 +4459,166 @@ class GeneDraftApp:
         )
 
     def _prompt_motif_search(self) -> str | None:
-        """Custom motif search dialog."""
-        C = self.colors
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Find motif")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-        dialog.configure(bg=C["bg"])
-        dialog.columnconfigure(0, weight=1)
-
-        self._make_dialog_header(
-            dialog,
-            "Find motif or subsequence",
-            "Exact search on the forward and reverse strands when applicable.",
+        return self._prompt_text_input_dialog(
+            title="Find motif",
+            heading="Find motif or subsequence",
+            subtitle="Exact search on the forward and reverse strands when applicable.",
+            field_label="Motif",
+            action_label="Search",
+            helper_text="Examples: ATGCGT  |  TATAAA  |  GCGC",
+            monospace=True,
+            entry_width=28,
         )
 
-        container = ttk.Frame(dialog, style="Card.TFrame", padding=(22, 18, 22, 18))
-        container.grid(row=1, column=0, sticky="nsew", padx=14, pady=14)
-        container.columnconfigure(1, weight=1)
+    def _get_restriction_analysis_target(self) -> tuple[str, int, str]:
+        selection = self._get_selection_sequence()
+        if selection is not None:
+            start_nt, end_nt, sequence = selection
+            return sequence, start_nt - 1, f"Selection {start_nt}-{end_nt}"
+        summary = self._get_summary()
+        return summary.cleaned, 0, "Full sequence"
 
-        ttk.Label(container, text="Motif", style="SectionHead.TLabel").grid(
-            row=0, column=0, sticky="w", padx=(0, 12))
+    def _run_restriction_analysis(self, *, filter_mode: str = "all", enzyme_name: str | None = None) -> None:
+        analyzed_sequence, global_offset, scope_label = self._get_restriction_analysis_target()
+        if not analyzed_sequence:
+            messagebox.showinfo("No sequence", "There is no DNA sequence to analyze.")
+            return
 
-        motif_var = tk.StringVar()
-        entry = tk.Entry(
-            container,
-            textvariable=motif_var,
-            font=("Cascadia Code", 14),
-            bg=C["surface"],
-            fg=C["text"],
-            insertbackground=C["accent"],
-            relief="flat",
-            highlightthickness=2,
-            highlightbackground=C["border"],
-            highlightcolor=C["accent"],
-            width=28,
+        analyzed_summary = summarize_sequence(analyzed_sequence)
+        if analyzed_summary.molecule_type != "DNA":
+            messagebox.showwarning("DNA required", "Restriction analysis only applies to DNA sequences.")
+            return
+
+        mode = str(filter_mode or "all").strip().lower()
+        mode_titles = {
+            "all": "All cutters",
+            "unique": "Unique cutters",
+            "double": "Double cutters",
+        }
+        if mode not in mode_titles:
+            messagebox.showerror("Invalid filter", f"Unsupported restriction filter: {filter_mode}")
+            return
+
+        normalized_enzyme_name: str | None = None
+        if enzyme_name is not None:
+            try:
+                normalized_enzyme_name = resolve_restriction_enzyme_name(enzyme_name)
+            except ValueError as exc:
+                messagebox.showerror("Unknown enzyme", str(exc))
+                return
+
+        busy_subject = normalized_enzyme_name or mode_titles[mode].lower()
+        self._set_busy_status(f"Working: analyzing restriction enzymes ({busy_subject})...")
+        try:
+            try:
+                hits = find_restriction_sites(
+                    analyzed_summary.cleaned,
+                    filter_mode=mode,
+                    enzyme_name=normalized_enzyme_name,
+                )
+            except Exception as exc:
+                messagebox.showerror("Could not analyze", str(exc))
+                return
+
+            if not hits:
+                self._reset_search_state()
+                self._clear_analysis_highlights()
+                self._redraw_features()
+                if normalized_enzyme_name:
+                    self._set_results(
+                        "Restriction enzyme search completed.\n\n"
+                        f"Enzyme: {normalized_enzyme_name}\n"
+                        f"Scope: {scope_label}\n"
+                        "Sites found: 0"
+                    )
+                else:
+                    self._set_results(
+                        "Restriction analysis completed.\n\n"
+                        f"Filter: {mode_titles[mode]}\n"
+                        f"Scope: {scope_label}\n"
+                        "Enzymes with cuts: 0\n"
+                        "Sites found: 0"
+                    )
+                return
+
+            matches: list[SearchMatch] = []
+            for hit in hits:
+                global_start = hit.site_start + global_offset
+                global_end = hit.site_end + global_offset
+                global_cut_position = hit.cut_position + global_offset
+                global_cut_positions = [position + global_offset for position in hit.all_cut_positions]
+                matches.append(
+                    SearchMatch(
+                        start_nt=global_start,
+                        end_nt=global_end,
+                        title=f"{hit.enzyme_name} site {hit.cut_index} of {hit.cut_count}",
+                        details=(
+                            f"Recognition site: {hit.recognition_site}\n"
+                            f"Matched sequence: {hit.matched_sequence}\n"
+                            f"Cut position: {global_cut_position}\n"
+                            f"All cut positions: {', '.join(str(position) for position in global_cut_positions)}\n"
+                            f"Total cuts by {hit.enzyme_name}: {hit.cut_count}\n"
+                            f"Scope: {scope_label}\n\n"
+                            "Use F6 and Shift+F6 to navigate between restriction sites."
+                        ),
+                        kind="restriction",
+                        payload=RestrictionSiteHit(
+                            enzyme_name=hit.enzyme_name,
+                            recognition_site=hit.recognition_site,
+                            matched_sequence=hit.matched_sequence,
+                            cut_position=global_cut_position,
+                            site_start=global_start,
+                            site_end=global_end,
+                            cut_index=hit.cut_index,
+                            cut_count=hit.cut_count,
+                            all_cut_positions=global_cut_positions,
+                        ),
+                    )
+                )
+
+            enzymes_with_cuts = len({hit.enzyme_name for hit in hits})
+            if normalized_enzyme_name:
+                label = (
+                    f"Restriction enzyme: {normalized_enzyme_name}\n"
+                    f"Scope: {scope_label}\n"
+                    f"Sites found: {len(matches)}"
+                )
+            else:
+                label = (
+                    f"Restriction enzymes: {mode_titles[mode]}\n"
+                    f"Scope: {scope_label}\n"
+                    f"Enzymes with cuts: {enzymes_with_cuts}\n"
+                    f"Sites found: {len(matches)}"
+                )
+            self._set_search_matches(matches, label)
+            self._focus_current_search_hit()
+        finally:
+            self._clear_busy_status()
+
+    def show_all_restriction_sites(self) -> None:
+        self._run_restriction_analysis(filter_mode="all")
+
+    def show_unique_restriction_sites(self) -> None:
+        self._run_restriction_analysis(filter_mode="unique")
+
+    def show_double_restriction_sites(self) -> None:
+        self._run_restriction_analysis(filter_mode="double")
+
+    def find_restriction_enzyme(self) -> None:
+        enzyme_name = self._prompt_text_input_dialog(
+            title="Find Restriction Enzyme",
+            heading="Find restriction enzyme",
+            subtitle="Search the current DNA sequence or selection for one specific enzyme.",
+            field_label="Enzyme name",
+            action_label="Find enzyme",
+            helper_text="Examples: EcoRI  |  BamHI  |  HindIII  |  XhoI",
         )
-        entry.grid(row=0, column=1, sticky="ew", ipady=6)
-
-        ttk.Label(
-            container,
-            text="Example: ATGCGT  |  TATAAA  |  GCGC",
-            style="Muted.TLabel",
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 18))
-
-        buttons = ttk.Frame(container, style="Card.TFrame")
-        buttons.grid(row=2, column=0, columnspan=2, sticky="e")
-        result: list[str] = []
-
-        def submit() -> None:
-            val = motif_var.get().strip()
-            if val:
-                result.append(val)
-            dialog.destroy()
-
-        ttk.Button(buttons, text="Cancel", command=dialog.destroy,
-                   style="Action.TButton").grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(buttons, text="Search", command=submit,
-                   style="Primary.TButton").grid(row=0, column=1)
-
-        dialog.bind("<Escape>", lambda e: dialog.destroy())
-        dialog.bind("<Return>",  lambda e: submit())
-        dialog.update_idletasks()
-        dialog.geometry(f"+{self.root.winfo_rootx() + 140}+{self.root.winfo_rooty() + 140}")
-        entry.focus_set()
-        dialog.lift()
-        self.root.wait_window(dialog)
-
-        return result[0] if result else None
+        if enzyme_name is None:
+            return
+        if not enzyme_name.strip():
+            messagebox.showwarning("Empty enzyme", "Enter the name of a restriction enzyme.")
+            return
+        self._run_restriction_analysis(enzyme_name=enzyme_name.strip())
 
     def search_motif(self) -> None:
         summary = self._get_summary()
@@ -4596,35 +5033,31 @@ class GeneDraftApp:
         return 1, 1
 
     def _prompt_feature_details(self, start_nt: int, end_nt: int) -> tuple[str, str] | None:
-        C = self.colors
-        dialog = tk.Toplevel(self.root)
-        dialog.title("New feature")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-        dialog.configure(bg=C["bg"])
-        dialog.columnconfigure(0, weight=1)
+        dialog, container = self._create_modal_dialog(
+            "New feature",
+            "Create feature",
+            f"Range: {start_nt} - {end_nt}",
+            min_width=520,
+        )
 
-        self._make_dialog_header(dialog, "Create feature", f"Range: {start_nt} - {end_nt}")
-
-        container = ttk.Frame(dialog, style="Card.TFrame", padding=(18, 14, 18, 16))
-        container.grid(row=1, column=0, sticky="nsew", padx=12, pady=12)
-        container.columnconfigure(1, weight=1)
-
-        ttk.Label(container, text="Label", style="SectionHead.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 10))
         label_var = tk.StringVar(value=f"feature_{len(self.features) + 1}")
-        label_entry = ttk.Entry(container, textvariable=label_var, style="Modern.TEntry", width=28)
-        label_entry.grid(row=0, column=1, sticky="ew", pady=(0, 10))
+        ttk.Label(container, text="Label", style="SectionHead.TLabel").grid(row=0, column=0, sticky="w")
+        label_entry = ttk.Entry(container, textvariable=label_var, style="Modern.TEntry")
+        label_entry.grid(row=1, column=0, sticky="ew", pady=(6, 0), ipady=2)
 
-        ttk.Label(container, text="Type", style="SectionHead.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 10))
         type_var = tk.StringVar(value="misc_feature")
-        type_combo = ttk.Combobox(container, textvariable=type_var, values=self.feature_type_options, state="normal", width=26)
-        type_combo.grid(row=1, column=1, sticky="ew")
+        ttk.Label(container, text="Type", style="SectionHead.TLabel").grid(row=2, column=0, sticky="w", pady=(14, 0))
+        type_combo = ttk.Combobox(container, textvariable=type_var, values=self.feature_type_options, state="normal")
+        type_combo.grid(row=3, column=0, sticky="ew", pady=(6, 0))
 
-        ttk.Label(container, text="Choose a common type or enter a custom one.", style="Muted.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 16))
+        ttk.Label(
+            container,
+            text="Choose a common type or enter a custom one.",
+            style="Muted.TLabel",
+        ).grid(row=4, column=0, sticky="w", pady=(10, 0))
 
         buttons = ttk.Frame(container, style="Card.TFrame")
-        buttons.grid(row=3, column=0, columnspan=2, sticky="e")
+        buttons.grid(row=5, column=0, sticky="e", pady=(20, 0))
         result: dict[str, str] = {}
 
         def submit() -> None:
@@ -4641,13 +5074,8 @@ class GeneDraftApp:
         dialog.protocol("WM_DELETE_WINDOW", cancel)
         dialog.bind("<Escape>", lambda event: cancel())
         dialog.bind("<Return>", lambda event: submit())
-        dialog.update_idletasks()
-        dialog.geometry(f"+{self.root.winfo_rootx() + 120}+{self.root.winfo_rooty() + 120}")
-        dialog.lift()
-        dialog.focus_force()
-        label_entry.focus_set()
         label_entry.selection_range(0, tk.END)
-        self.root.wait_window(dialog)
+        self._show_modal_dialog(dialog, focus_widget=label_entry)
 
         if not result:
             return None
@@ -4665,43 +5093,41 @@ class GeneDraftApp:
         initial_end: int,
         initial_strand: str = "+",
     ) -> dict[str, object] | None:
-        C = self.colors
-        dialog = tk.Toplevel(self.root)
-        dialog.title(dialog_title)
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-        dialog.configure(bg=C["bg"])
-        dialog.columnconfigure(0, weight=1)
-
-        self._make_dialog_header(
-            dialog,
+        dialog, container = self._create_modal_dialog(
+            dialog_title,
             dialog_heading,
             f"Available range: 1 - {max(1, summary.length)}",
+            min_width=560,
         )
 
-        container = ttk.Frame(dialog, style="Card.TFrame", padding=(18, 14, 18, 16))
-        container.grid(row=1, column=0, sticky="nsew", padx=12, pady=12)
-        container.columnconfigure(1, weight=1)
-
-        ttk.Label(container, text="Label", style="SectionHead.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        ttk.Label(container, text="Label", style="SectionHead.TLabel").grid(row=0, column=0, sticky="w")
         label_var = tk.StringVar(value=initial_label.strip() or f"feature_{len(self.features) + 1}")
-        label_entry = ttk.Entry(container, textvariable=label_var, style="Modern.TEntry", width=28)
-        label_entry.grid(row=0, column=1, sticky="ew", pady=(0, 10))
+        label_entry = ttk.Entry(container, textvariable=label_var, style="Modern.TEntry")
+        label_entry.grid(row=1, column=0, sticky="ew", pady=(6, 0), ipady=2)
 
-        ttk.Label(container, text="Type", style="SectionHead.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 10))
+        ttk.Label(container, text="Type", style="SectionHead.TLabel").grid(row=2, column=0, sticky="w", pady=(14, 0))
         type_var = tk.StringVar(value=initial_type.strip() or "misc_feature")
-        ttk.Combobox(container, textvariable=type_var, values=self.feature_type_options, state="normal", width=26).grid(row=1, column=1, sticky="ew")
+        ttk.Combobox(container, textvariable=type_var, values=self.feature_type_options, state="normal").grid(
+            row=3, column=0, sticky="ew", pady=(6, 0)
+        )
 
-        ttk.Label(container, text="Start", style="SectionHead.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 10), pady=(10, 0))
+        coords = ttk.Frame(container, style="Card.TFrame")
+        coords.grid(row=4, column=0, sticky="ew", pady=(16, 0))
+        coords.columnconfigure(0, weight=1)
+        coords.columnconfigure(1, weight=1)
+
+        ttk.Label(coords, text="Start", style="SectionHead.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(coords, text="End", style="SectionHead.TLabel").grid(row=0, column=1, sticky="w", padx=(8, 0))
         start_var = tk.StringVar(value=str(initial_start))
-        ttk.Entry(container, textvariable=start_var, style="Modern.TEntry", width=12).grid(row=2, column=1, sticky="w", pady=(10, 0))
-
-        ttk.Label(container, text="End", style="SectionHead.TLabel").grid(row=3, column=0, sticky="w", padx=(0, 10), pady=(10, 0))
+        ttk.Entry(coords, textvariable=start_var, style="Modern.TEntry").grid(
+            row=1, column=0, sticky="ew", padx=(0, 8), pady=(6, 0), ipady=2
+        )
         end_var = tk.StringVar(value=str(initial_end))
-        ttk.Entry(container, textvariable=end_var, style="Modern.TEntry", width=12).grid(row=3, column=1, sticky="w", pady=(10, 0))
+        ttk.Entry(coords, textvariable=end_var, style="Modern.TEntry").grid(
+            row=1, column=1, sticky="ew", padx=(8, 0), pady=(6, 0), ipady=2
+        )
 
-        ttk.Label(container, text="Strand", style="SectionHead.TLabel").grid(row=4, column=0, sticky="w", padx=(0, 10), pady=(10, 0))
+        ttk.Label(container, text="Strand", style="SectionHead.TLabel").grid(row=5, column=0, sticky="w", pady=(14, 0))
         strand_var = tk.StringVar(
             value=self.feature_strand_value_to_label.get(self._normalize_feature_strand(initial_strand), "Forward (+)")
         )
@@ -4710,17 +5136,16 @@ class GeneDraftApp:
             textvariable=strand_var,
             values=tuple(self.feature_strand_label_to_value.keys()),
             state="readonly",
-            width=22,
-        ).grid(row=4, column=1, sticky="w", pady=(10, 0))
+        ).grid(row=6, column=0, sticky="ew", pady=(6, 0))
 
         ttk.Label(
             container,
             text="Choose a common type or enter a custom one. Strand is stored as + or -.",
             style="Muted.TLabel",
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 16))
+        ).grid(row=7, column=0, sticky="w", pady=(10, 0))
 
         buttons = ttk.Frame(container, style="Card.TFrame")
-        buttons.grid(row=6, column=0, columnspan=2, sticky="e")
+        buttons.grid(row=8, column=0, sticky="e", pady=(20, 0))
         result: dict[str, object] = {}
 
         def submit() -> None:
@@ -4755,13 +5180,8 @@ class GeneDraftApp:
         dialog.protocol("WM_DELETE_WINDOW", cancel)
         dialog.bind("<Escape>", lambda event: cancel())
         dialog.bind("<Return>", lambda event: submit())
-        dialog.update_idletasks()
-        dialog.geometry(f"+{self.root.winfo_rootx() + 120}+{self.root.winfo_rooty() + 120}")
-        dialog.lift()
-        dialog.focus_force()
-        label_entry.focus_set()
         label_entry.selection_range(0, tk.END)
-        self.root.wait_window(dialog)
+        self._show_modal_dialog(dialog, focus_widget=label_entry)
 
         if not result:
             return None

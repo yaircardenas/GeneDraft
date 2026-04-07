@@ -7,6 +7,7 @@ from typing import Iterable
 from xml.sax.saxutils import escape
 
 from Bio import SeqIO
+from Bio.Restriction import AllEnzymes
 from Bio.Seq import Seq
 from Bio.SeqFeature import FeatureLocation, SeqFeature
 from Bio.SeqRecord import SeqRecord
@@ -66,6 +67,19 @@ class MotifHit:
     end_nt: int
     strand: str
     matched_sequence: str
+
+
+@dataclass(slots=True)
+class RestrictionSiteHit:
+    enzyme_name: str
+    recognition_site: str
+    matched_sequence: str
+    cut_position: int
+    site_start: int
+    site_end: int
+    cut_index: int
+    cut_count: int
+    all_cut_positions: list[int]
 
 
 @dataclass(slots=True)
@@ -142,6 +156,78 @@ def summarize_sequence(raw_text: str) -> SequenceSummary:
         length=len(cleaned),
         gc_percent=calculate_gc(cleaned),
     )
+
+
+def _resolve_restriction_enzyme(name: str):
+    normalized = "".join(str(name or "").split())
+    if not normalized:
+        raise ValueError("Enter the name of a restriction enzyme, for example EcoRI.")
+    for enzyme in AllEnzymes:
+        if enzyme.__name__.casefold() == normalized.casefold():
+            return enzyme
+    raise ValueError(f"Restriction enzyme not found: {normalized}")
+
+
+def resolve_restriction_enzyme_name(name: str) -> str:
+    return _resolve_restriction_enzyme(name).__name__
+
+
+def find_restriction_sites(
+    sequence: str,
+    *,
+    filter_mode: str = "all",
+    enzyme_name: str | None = None,
+) -> list[RestrictionSiteHit]:
+    summary = summarize_sequence(sequence)
+    if summary.molecule_type != "DNA":
+        raise ValueError("Restriction analysis requires a DNA sequence.")
+
+    mode = str(filter_mode or "all").strip().lower()
+    if mode not in {"all", "unique", "double"}:
+        raise ValueError(f"Unknown restriction filter: {filter_mode}")
+
+    enzymes = (
+        [_resolve_restriction_enzyme(enzyme_name)]
+        if enzyme_name is not None
+        else sorted(AllEnzymes, key=lambda enzyme: enzyme.__name__.casefold())
+    )
+
+    sequence_obj = Seq(summary.cleaned)
+    hits: list[RestrictionSiteHit] = []
+    for enzyme in enzymes:
+        cut_positions = sorted(int(position) for position in enzyme.search(sequence_obj, linear=True))
+        cut_count = len(cut_positions)
+        if cut_count == 0:
+            continue
+        if mode == "unique" and cut_count != 1:
+            continue
+        if mode == "double" and cut_count != 2:
+            continue
+
+        recognition_site = str(getattr(enzyme, "site", "") or "")
+        recognition_length = len(recognition_site)
+        cut_offset = getattr(enzyme, "fst5", 0)
+        if not isinstance(cut_offset, int):
+            cut_offset = 0
+
+        for cut_index, cut_position in enumerate(cut_positions, start=1):
+            site_start = max(1, cut_position - cut_offset)
+            site_end = min(len(summary.cleaned), site_start + max(0, recognition_length - 1))
+            matched_sequence = summary.cleaned[site_start - 1:site_end]
+            hits.append(
+                RestrictionSiteHit(
+                    enzyme_name=enzyme.__name__,
+                    recognition_site=recognition_site,
+                    matched_sequence=matched_sequence,
+                    cut_position=cut_position,
+                    site_start=site_start,
+                    site_end=site_end,
+                    cut_index=cut_index,
+                    cut_count=cut_count,
+                    all_cut_positions=cut_positions.copy(),
+                )
+            )
+    return hits
 
 
 def reverse_complement(sequence: str) -> str:
@@ -587,10 +673,7 @@ def find_orfs(sequence: str, min_amino_acids: int = 30, include_reverse: bool = 
 
 def load_first_fasta(path: str | Path) -> tuple[str, str]:
     fasta_path = str(path)
-    try:
-        record = next(SeqIO.parse(fasta_path, "fasta-blast"))
-    except Exception:
-        record = next(SeqIO.parse(fasta_path, "fasta"))
+    record = next(SeqIO.parse(fasta_path, "fasta"))
     return record.id, str(record.seq).upper()
 
 
@@ -603,10 +686,7 @@ def load_sequence_file(path: str | Path) -> tuple[str, str, list[SequenceFeature
 
     input_path = str(path)
     if file_format == "fasta":
-        try:
-            record = next(SeqIO.parse(input_path, "fasta-blast"))
-        except Exception:
-            record = next(SeqIO.parse(input_path, "fasta"))
+        record = next(SeqIO.parse(input_path, "fasta"))
     else:
         record = next(SeqIO.parse(input_path, file_format))
     features: list[SequenceFeature] = []
@@ -1096,25 +1176,35 @@ def fetch_by_accession(
 
 def sanitize_fasta_for_blast(source_path: str | Path, output_path: str | Path) -> tuple[int, str]:
     input_path = str(source_path)
-    try:
-        records = list(SeqIO.parse(input_path, "fasta-blast"))
-    except Exception:
-        records = list(SeqIO.parse(input_path, "fasta"))
+    records = list(SeqIO.parse(input_path, "fasta"))
 
     if not records:
         raise ValueError("No valid sequences were detected in the FASTA file.")
 
     sanitized_records: list[SeqRecord] = []
+    seen_ids: set[str] = set()
     for index, record in enumerate(records, start=1):
         raw_id = (record.id or f"seq_{index}").strip()
-        safe_id = "".join(char if (char.isalnum() or char in {"_", "-", "."}) else "_" for char in raw_id)
-        safe_id = safe_id[:80].strip("._-") or f"seq_{index}"
+        raw_description = " ".join(str(record.description or "").split()).strip()
+        source_label = raw_description or raw_id or f"seq_{index}"
+        safe_id_base = "".join(char if (char.isalnum() or char in {"_", "-", "."}) else "_" for char in source_label)
+        safe_id_base = safe_id_base[:180].strip("._-") or f"seq_{index}"
+        safe_id = safe_id_base
+        duplicate_index = 2
+        while safe_id in seen_ids:
+            suffix = f"_{duplicate_index}"
+            allowed_base_length = max(1, 180 - len(suffix))
+            safe_id = f"{safe_id_base[:allowed_base_length].rstrip('._-') or 'seq'}{suffix}"
+            duplicate_index += 1
+        seen_ids.add(safe_id)
+
+        safe_description = raw_description[:240]
         sanitized_records.append(
             SeqRecord(
                 Seq(str(record.seq).upper()),
                 id=safe_id,
                 name=safe_id,
-                description="",
+                description=safe_description,
             )
         )
 
