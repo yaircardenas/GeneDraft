@@ -71,7 +71,7 @@
   <circle cx="474" cy="157" r="8" fill="#F1B24E"/>
   <circle cx="500" cy="157" r="8" fill="#4AB986"/>
   <rect x="540" y="144" width="250" height="24" rx="12" fill="#143854"/>
-  <text x="665" y="161" text-anchor="middle" class="mono">GeneDraft  |  local sequence workbench</text>
+  <text x="665" y="161" text-anchor="middle" class="mono">GeneDraft  |  local desktop workbench</text>
 
   <text x="800" y="218" text-anchor="middle" class="panelTitle">Editor-centered desktop workspace</text>
   <text x="800" y="248" text-anchor="middle" class="panelBody">DNA, RNA, and protein review in a single interface</text>

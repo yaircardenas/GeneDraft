@@ -55,8 +55,8 @@ APP_AFFILIATION = (
     "Colima, Colima, México"
 )
 APP_DESCRIPTION = (
-    "GeneDraft is a local sequence workbench for fast sequence editing and lightweight "
-    "DNA, RNA, and protein analysis."
+    "GeneDraft is a local desktop workbench for DNA, RNA, and protein sequence editing "
+    "and exploratory analysis."
 )
 
 

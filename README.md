@@ -1,6 +1,6 @@
 # GeneDraft
 
-GeneDraft is a local desktop workbench for rapid DNA, RNA, and protein sequence editing, annotation, and exploratory analysis.
+GeneDraft is a local desktop workbench for DNA, RNA, and protein sequence editing and exploratory analysis.
 
 It is designed for small-to-medium sequence tasks that are often spread across separate editors, web services, and ad hoc scripts. GeneDraft does not try to replace specialized high-throughput or genome-scale tools; its value is a local-first, editor-centered workflow for routine sequence work.
 
