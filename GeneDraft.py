@@ -45,6 +45,7 @@ APP_VERSION = "1.0"
 APP_RELEASE_YEAR = "2026"
 APP_REPOSITORY_URL = "https://github.com/yaircardenas/GeneDraft"
 APP_SOFTWARE_DOI = "https://doi.org/10.5281/zenodo.19445034"
+APP_PREPRINT_DOI = "https://doi.org/10.13140/RG.2.2.28805.72167"
 APP_AUTHOR = "Yair Cárdenas-Conejo"
 APP_CONTACT_EMAIL = "ycardenasco@secihti.mx"
 APP_ORCID = "0000-0002-0190-244X"
@@ -2194,6 +2195,7 @@ class GeneDraftApp:
             f"Release year: {APP_RELEASE_YEAR}\n"
             f"Repository: {APP_REPOSITORY_URL}\n"
             f"Software DOI: {APP_SOFTWARE_DOI}\n"
+            f"Preprint DOI: {APP_PREPRINT_DOI}\n"
             "License: MIT\n"
         )
 
@@ -2202,13 +2204,16 @@ class GeneDraftApp:
             "Suggested citation\n\n"
             f"Cárdenas-Conejo Y. ({APP_RELEASE_YEAR}). GeneDraft (Version {APP_VERSION}) "
             f"[Computer software]. Zenodo. {APP_SOFTWARE_DOI}\n\n"
+            f"Cárdenas-Conejo Y. ({APP_RELEASE_YEAR}). GeneDraft: a local desktop workbench for DNA, RNA, and protein "
+            f"sequence editing and exploratory analysis. ResearchGate. {APP_PREPRINT_DOI}\n\n"
             "Autor\n"
             f"{APP_AUTHOR}\n"
             f"ORCID: {APP_ORCID}\n\n"
             "Afiliación\n"
             f"{APP_AFFILIATION}\n\n"
             "Citation note\n"
-            "- Update the repository field once the GitHub project is public.\n"
+            "- Cite the Zenodo DOI for software use and version-specific reuse.\n"
+            "- Cite the preprint DOI for the manuscript or project description.\n"
             "- If you release new versions, cite the version actually used in the analysis.\n"
         )
 
@@ -2248,7 +2253,9 @@ class GeneDraftApp:
             "Repositorio\n"
             f"{APP_REPOSITORY_URL}\n\n"
             "DOI del software\n"
-            f"{APP_SOFTWARE_DOI}\n"
+            f"{APP_SOFTWARE_DOI}\n\n"
+            "DOI del preprint\n"
+            f"{APP_PREPRINT_DOI}\n"
         )
 
     def show_about_information(self) -> None:

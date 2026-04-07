@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use GeneDraft, please cite the software release and, when available, the associated preprint."
+message: "If you use GeneDraft, please cite the Zenodo software release. For the associated manuscript, cite the preprint at https://doi.org/10.13140/RG.2.2.28805.72167."
 title: "GeneDraft"
 version: "v1.0.0"
 type: software

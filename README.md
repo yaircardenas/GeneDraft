@@ -4,6 +4,10 @@ GeneDraft is a local desktop workbench for DNA, RNA, and protein sequence editin
 
 It is designed for small-to-medium sequence tasks that are often spread across separate editors, web services, and ad hoc scripts. GeneDraft does not try to replace specialized high-throughput or genome-scale tools; its value is a local-first, editor-centered workflow for routine sequence work.
 
+**Cite the manuscript:** `https://doi.org/10.13140/RG.2.2.28805.72167`  
+**Cite the software release:** `https://doi.org/10.5281/zenodo.19445034`  
+**Repository:** `https://github.com/yaircardenas/GeneDraft`
+
 ![GeneDraft overview](assets/genedraft_article_figure_overview.svg)
 
 ## Author
@@ -115,12 +119,13 @@ python GeneDraft.py
 ## Availability and citation
 
 - Repository URL: `https://github.com/yaircardenas/GeneDraft`
+- Preprint DOI: `https://doi.org/10.13140/RG.2.2.28805.72167`
 - Archived release DOI: `https://doi.org/10.5281/zenodo.19445034`
 - Software concept DOI: `https://doi.org/10.5281/zenodo.19445033`
 - License: `MIT`
 - Version described in the current draft: `1.0`
 
-If you use GeneDraft, cite the software release and, when available, the associated preprint. Citation metadata is provided in [`CITATION.cff`](CITATION.cff).
+If you use GeneDraft as software, cite the Zenodo release. If you refer to the manuscript or project description, cite the preprint DOI. Citation metadata is provided in [`CITATION.cff`](CITATION.cff).
 
 ## Next useful steps
 

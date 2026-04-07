@@ -82,6 +82,8 @@ Version described here: 1.0
 
 Source code repository: https://github.com/yaircardenas/GeneDraft
 
+Preprint DOI: https://doi.org/10.13140/RG.2.2.28805.72167
+
 Archived release DOI: https://doi.org/10.5281/zenodo.19445034
 
 Software concept DOI: https://doi.org/10.5281/zenodo.19445033
@@ -121,4 +123,4 @@ This study was supported by a grant from the Secretaría de Ciencia, Humanidades
 
 ### Data and software availability
 
-GeneDraft source code is available under the MIT License at https://github.com/yaircardenas/GeneDraft. Archived releases are available through Zenodo at https://doi.org/10.5281/zenodo.19445034.
+GeneDraft source code is available under the MIT License at https://github.com/yaircardenas/GeneDraft. Archived releases are available through Zenodo at https://doi.org/10.5281/zenodo.19445034. The associated manuscript is available at https://doi.org/10.13140/RG.2.2.28805.72167.
