@@ -966,7 +966,13 @@ def analyze_protein(sequence: str, **kwargs) -> str:
     gravy       = pa.gravy()
     aromaticity = pa.aromaticity()
     helix, turn, sheet = pa.secondary_structure_fraction()
-    aa_pct      = pa.get_amino_acids_percent()
+    aa_pct_raw = getattr(pa, "amino_acids_percent", None)
+    if callable(aa_pct_raw):
+        aa_pct = aa_pct_raw()
+    elif isinstance(aa_pct_raw, dict):
+        aa_pct = aa_pct_raw
+    else:
+        aa_pct = {aa: std_seq.count(aa) / len(std_seq) for aa in _STANDARD}
 
     n_cys     = std_seq.count("C")
     charged   = sum(aa_pct.get(aa, 0) for aa in "DEKR")

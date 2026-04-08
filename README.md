@@ -112,6 +112,14 @@ python -m pip install -r requirements.txt
 python GeneDraft.py
 ```
 
+On Linux, `tkinter` is usually provided by the operating system rather than `pip`.
+
+Examples:
+
+- Ubuntu/Debian: `sudo apt install python3-tk`
+- Fedora: `sudo dnf install python3-tkinter`
+- Arch: `sudo pacman -S tk`
+
 `Secondary structure` requires `ViennaRNA` from `requirements.txt`.
 
 `BLAST local` requires NCBI BLAST+ executables available in `PATH`.

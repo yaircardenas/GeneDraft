@@ -4,6 +4,7 @@ import ctypes
 from dataclasses import dataclass
 from itertools import cycle
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -166,7 +167,10 @@ class GeneDraftApp:
         self.root.title("GeneDraft")
         self.root.geometry("1720x1060")
         self.root.minsize(1380, 860)
-        self.root.state("zoomed")
+        self.app_root = Path(__file__).resolve().parent
+        self.data_dir = self._resolve_app_data_dir()
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.root.after(0, self._maximize_main_window)
 
         self.current_theme: str = "night"
         self.colors = self._build_night_colors()
@@ -195,10 +199,10 @@ class GeneDraftApp:
         self.local_blast_source_var = tk.StringVar(value="")
         self.local_blast_db_var     = tk.StringVar(value="")
         self.local_blast_type_var   = tk.StringVar(value="auto")
-        self.settings_path = Path.cwd() / "genedraft_settings.json"
+        self.settings_path = self.data_dir / "genedraft_settings.json"
         self._recent_files: list[str] = []
         self._ncbi_email: str = ""
-        self.session_path = Path.cwd() / "genedraft_session.json"
+        self.session_path = self.data_dir / "genedraft_session.json"
         self.sequence_name.trace_add("write", self._on_sequence_name_changed)
         self.feature_type_options = (
             "misc_feature", "gene", "CDS", "rep_origin", "restriction_site",
@@ -237,6 +241,7 @@ class GeneDraftApp:
         self.search_label = ""
         self._internal_edit = False
         self._clean_index_map_cache: list[str] | None = None
+        self._last_selection_clean_range: tuple[int, int] | None = None
         self._history_undo: list[OperationSnapshot] = []
         self._history_redo: list[OperationSnapshot] = []
         self._session_after_id: str | None = None
@@ -356,6 +361,24 @@ class GeneDraftApp:
             "tag_feature":      "#DBEAFE",
             "tag_feature_focus":"#FBBF24",
         }
+
+    def _resolve_app_data_dir(self) -> Path:
+        if sys.platform == "win32":
+            base_dir = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+            return base_dir / "GeneDraft"
+        if sys.platform == "darwin":
+            return Path.home() / "Library" / "Application Support" / "GeneDraft"
+        base_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+        return base_dir / "GeneDraft"
+
+    def _maximize_main_window(self) -> None:
+        try:
+            if sys.platform == "win32":
+                self.root.state("zoomed")
+                return
+            self.root.attributes("-zoomed", True)
+        except tk.TclError:
+            pass
 
     def _resolve_monospace_font_family(self) -> str:
         try:
@@ -572,7 +595,7 @@ class GeneDraftApp:
         except Exception:
             pass
 
-        assets_dir = Path(__file__).resolve().parent / "assets"
+        assets_dir = self.app_root / "assets"
         icon_path = assets_dir / "genedraft_app.ico"
         if icon_path.exists():
             try:
@@ -591,7 +614,7 @@ class GeneDraftApp:
             self.app_icon = None
 
     def _apply_window_icon(self, window: tk.Misc) -> None:
-        assets_dir = Path(__file__).resolve().parent / "assets"
+        assets_dir = self.app_root / "assets"
         icon_path = assets_dir / "genedraft_app.ico"
         if icon_path.exists():
             try:
@@ -625,7 +648,7 @@ class GeneDraftApp:
         dialog.after(0, lambda win=dialog: self._apply_dark_title_bar(win))
 
     def _load_brand_mark_image(self) -> tk.PhotoImage | None:
-        mark_path = Path(__file__).resolve().parent / "assets" / "genedraft_mark.png"
+        mark_path = self.app_root / "assets" / "genedraft_mark.png"
         if not mark_path.exists():
             return None
         try:
@@ -951,7 +974,7 @@ class GeneDraftApp:
         path = Path(normalized)
         if path.is_absolute():
             return str(path)
-        return str((Path.cwd() / path).resolve())
+        return str((self.app_root / path).resolve())
 
     def _serialize_config_path(self, path_text: str) -> str:
         normalized = path_text.strip().strip('"')
@@ -963,7 +986,7 @@ class GeneDraftApp:
         except Exception:
             resolved = path
         try:
-            return str(resolved.relative_to(Path.cwd().resolve()))
+            return str(resolved.relative_to(self.app_root))
         except Exception:
             return str(resolved)
 
@@ -1036,6 +1059,8 @@ class GeneDraftApp:
         return str(path)
 
     def _ensure_blast_paths_supported(self, *paths: str) -> bool:
+        if sys.platform != "win32":
+            return True
         checked = [str(Path.cwd().resolve())]
         checked.extend(path.strip() for path in paths if path and path.strip())
         offenders = [path for path in checked if " " in path]
@@ -1061,7 +1086,7 @@ class GeneDraftApp:
         )
 
     def _discover_local_blast_db_prefixes(self) -> list[tuple[str, str]]:
-        blast_root = Path.cwd() / "blast_db"
+        blast_root = self.app_root / "blast_db"
         if not blast_root.exists():
             return []
 
@@ -1496,6 +1521,7 @@ class GeneDraftApp:
             editor_frame,
             wrap="none",
             undo=True,
+            exportselection=False,
             font=self._mono_font(self.editor_font_size),
             bg=self.colors["surface"],
             fg=self.colors["text"],
@@ -2757,6 +2783,7 @@ class GeneDraftApp:
         if selection_range is None:
             self.selection_var.set("Selection: 0 nt")
         else:
+            self._last_selection_clean_range = selection_range
             start_clean, end_clean = selection_range
             self.selection_var.set(f"Selection: {end_clean - start_clean} nt")
         self._schedule_minimap_redraw()
@@ -2767,6 +2794,7 @@ class GeneDraftApp:
     def _set_editor_text(self, text: str) -> None:
         self._internal_edit = True
         self._clean_index_map_cache = None
+        self._last_selection_clean_range = None
         self.sequence_text.delete("1.0", tk.END)
         self.sequence_text.insert("1.0", text)
         self.sequence_text.tag_remove(tk.SEL, "1.0", tk.END)
@@ -2842,7 +2870,7 @@ class GeneDraftApp:
             return
         self.local_blast_source_var.set(file_path)
         stem = Path(file_path).stem
-        db_dir = Path.cwd() / "blast_db" / stem
+        db_dir = self.app_root / "blast_db" / stem
         self.local_blast_db_var.set(str(db_dir / stem))
         try:
             _, sequence, _, _ = load_sequence_file(file_path)
@@ -2853,7 +2881,7 @@ class GeneDraftApp:
 
     def _suggest_blast_db_prefix(self, file_path: str) -> str:
         stem = Path(file_path).stem
-        db_dir = Path.cwd() / "blast_db" / stem
+        db_dir = self.app_root / "blast_db" / stem
         return str(db_dir / stem)
 
     def _coerce_blast_db_prefix(self, source: str, db_prefix: str) -> str:
@@ -3879,6 +3907,8 @@ class GeneDraftApp:
         default_type = "misc_feature"
         default_strand = "+"
         selection_range = self._get_selection_clean_range()
+        if selection_range is None:
+            selection_range = self._last_selection_clean_range
         match = self._get_current_search_match()
         if selection_range is None or match is None:
             return default_label, default_type, default_strand
@@ -4121,7 +4151,7 @@ class GeneDraftApp:
         return cleaned.strip("._-")[:80] or "sequence"
 
     def _secondary_structure_svg_path(self, molecule_type: str, start_nt: int, end_nt: int) -> Path:
-        output_dir = Path.cwd() / "generated_structures"
+        output_dir = self.app_root / "generated_structures"
         base_name = self._safe_name_fragment(self.sequence_name.get().strip() or "sequence")
         return output_dir / f"{base_name}_{molecule_type.lower()}_{start_nt}_{end_nt}_secondary_structure.svg"
 
@@ -5025,6 +5055,8 @@ class GeneDraftApp:
 
     def _get_default_feature_range(self, summary: SequenceSummary) -> tuple[int, int]:
         selection_range = self._get_selection_clean_range()
+        if selection_range is None:
+            selection_range = self._last_selection_clean_range
         if selection_range is not None:
             start_clean, end_clean = selection_range
             return start_clean + 1, end_clean

@@ -1,2 +1,8 @@
 biopython>=1.84
 ViennaRNA>=2.7
+
+# tkinter is part of the Python standard library, but on Linux it usually
+# requires a system package such as:
+#   Ubuntu/Debian: sudo apt install python3-tk
+#   Fedora:        sudo dnf install python3-tkinter
+#   Arch:          sudo pacman -S tk
