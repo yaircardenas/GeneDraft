@@ -945,6 +945,12 @@ class GeneDraftApp:
             self.local_blast_source_var.set(source)
         if db_prefix and self._blast_db_prefix_exists(db_prefix):
             self.local_blast_db_var.set(db_prefix)
+        else:
+            fallback_prefix, fallback_type = self._recover_local_blast_db_from_settings(db_prefix)
+            if fallback_prefix:
+                self.local_blast_db_var.set(fallback_prefix)
+                if db_type not in {"nucl", "prot"}:
+                    db_type = fallback_type
         if db_type in {"auto", "nucl", "prot"}:
             self.local_blast_type_var.set(db_type)
 
@@ -953,8 +959,10 @@ class GeneDraftApp:
 
     def _save_app_settings(self) -> None:
         data = {
-            "local_blast_source": self._serialize_config_path(self.local_blast_source_var.get().strip()),
-            "local_blast_db": self._serialize_config_path(self.local_blast_db_var.get().strip()),
+            # Keep BLAST paths absolute because settings live outside the project
+            # tree and the application folder may move between launches.
+            "local_blast_source": self._serialize_absolute_config_path(self.local_blast_source_var.get().strip()),
+            "local_blast_db": self._serialize_absolute_config_path(self.local_blast_db_var.get().strip()),
             "local_blast_type": self.local_blast_type_var.get().strip() or "auto",
             "recent_files": self._recent_files,
             "ncbi_email":   self._ncbi_email,
@@ -975,6 +983,15 @@ class GeneDraftApp:
         if path.is_absolute():
             return str(path)
         return str((self.app_root / path).resolve())
+
+    def _serialize_absolute_config_path(self, path_text: str) -> str:
+        normalized = path_text.strip().strip('"')
+        if not normalized:
+            return ""
+        try:
+            return str(Path(normalized).resolve())
+        except Exception:
+            return str(Path(normalized))
 
     def _serialize_config_path(self, path_text: str) -> str:
         normalized = path_text.strip().strip('"')
@@ -1096,6 +1113,26 @@ class GeneDraftApp:
                 prefix = str(file_path.with_suffix(""))
                 found[prefix] = db_type
         return sorted(found.items(), key=lambda item: item[0].lower())
+
+    def _recover_local_blast_db_from_settings(self, saved_db_prefix: str) -> tuple[str, str]:
+        discovered = self._discover_local_blast_db_prefixes()
+        if not discovered:
+            return "", ""
+        if len(discovered) == 1:
+            return discovered[0]
+
+        saved_name = Path(self._normalize_blast_db_prefix(saved_db_prefix)).name.lower()
+        if not saved_name:
+            return "", ""
+
+        matches = [
+            (prefix, db_type)
+            for prefix, db_type in discovered
+            if Path(prefix).name.lower() == saved_name
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return "", ""
 
     def _apply_local_blast_db_config(self, db_prefix: str, db_type: str, source: str = "") -> None:
         db_prefix = self._normalize_blast_db_prefix(db_prefix)
