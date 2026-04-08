@@ -1141,6 +1141,171 @@ class GeneDraftApp:
         self.local_blast_source_var.set(source.strip())
         self._save_app_settings()
 
+    def _clear_local_blast_db_config(self) -> None:
+        self.local_blast_db_var.set("")
+        self.local_blast_type_var.set("auto")
+        self.local_blast_source_var.set("")
+        self._save_app_settings()
+
+    def _collect_local_blast_db_files(self, db_prefix: str) -> list[Path]:
+        prefix = Path(self._normalize_blast_db_prefix(db_prefix))
+        if not prefix.name:
+            return []
+
+        suffixes = (
+            ".pdb", ".phr", ".pin", ".pjs", ".pot", ".psq", ".ptf", ".pto",
+            ".ndb", ".nhr", ".nin", ".njs", ".not", ".nsq", ".ntf", ".nto",
+        )
+        files = [prefix.with_suffix(ext) for ext in suffixes if prefix.with_suffix(ext).exists()]
+
+        sanitized_input = prefix.parent / f"{prefix.name}__sanitized_input.fasta"
+        if sanitized_input.exists():
+            files.append(sanitized_input)
+
+        return sorted(files, key=lambda path: path.name.lower())
+
+    def _prompt_remove_local_blast_db(self, db_prefix: str, source: str, has_files: bool) -> str:
+        C = self.colors
+        dialog, container = self._create_modal_dialog(
+            "Remove BLAST DB",
+            "Remove local BLAST database",
+            "Detach it from GeneDraft, optionally delete the files from disk",
+            min_width=560,
+        )
+
+        details = [
+            "The current BLAST database configuration will be cleared.",
+            "",
+            f"DB prefix: {db_prefix or '(not set)'}",
+            f"Source FASTA: {source or '(not set)'}",
+        ]
+        if has_files:
+            details.extend((
+                "",
+                "Choose 'Detach Only' to forget the database but keep the files.",
+                "Choose 'Delete Files' to forget it and remove its BLAST files from disk.",
+            ))
+        else:
+            details.extend((
+                "",
+                "No BLAST files were found for the configured prefix.",
+                "You can still clear the saved configuration.",
+            ))
+
+        body = tk.Label(
+            container,
+            text="\n".join(details),
+            justify="left",
+            anchor="w",
+            wraplength=520,
+            bg=C["surface"],
+            fg=C["text"],
+            font=("Segoe UI", 10),
+        )
+        body.grid(row=0, column=0, sticky="ew")
+
+        buttons = ttk.Frame(container, style="Card.TFrame")
+        buttons.grid(row=1, column=0, sticky="e", pady=(18, 0))
+
+        result = {"value": ""}
+
+        def choose(value: str) -> None:
+            result["value"] = value
+            dialog.destroy()
+
+        ttk.Button(buttons, text="Cancel", command=lambda: choose(""), style="Action.TButton").grid(
+            row=0, column=0, padx=(0, 8)
+        )
+        clear_label = "Detach Only" if has_files else "Clear Config"
+        detach_button = ttk.Button(
+            buttons,
+            text=clear_label,
+            command=lambda: choose("detach"),
+            style="Action.TButton",
+        )
+        detach_button.grid(row=0, column=1, padx=(0, 8 if has_files else 0))
+        if has_files:
+            ttk.Button(
+                buttons,
+                text="Delete Files",
+                command=lambda: choose("delete"),
+                style="Primary.TButton",
+            ).grid(row=0, column=2)
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose(""))
+        dialog.bind("<Escape>", lambda _event: choose(""))
+        dialog.bind("<Return>", lambda _event: choose("detach"))
+        self._show_modal_dialog(dialog, focus_widget=detach_button)
+        return str(result["value"])
+
+    def remove_local_blast_db(self) -> None:
+        db_prefix = self._normalize_blast_db_prefix(self.local_blast_db_var.get())
+        source = self.local_blast_source_var.get().strip()
+        if not db_prefix and not source:
+            messagebox.showinfo("No database", "There is no local BLAST database configured yet.")
+            return
+
+        db_files = self._collect_local_blast_db_files(db_prefix) if db_prefix else []
+        action = self._prompt_remove_local_blast_db(db_prefix, source, bool(db_files))
+        if action not in {"detach", "delete"}:
+            return
+
+        deleted_files: list[str] = []
+        failed_files: list[str] = []
+        removed_dirs: list[str] = []
+        if action == "delete":
+            for file_path in db_files:
+                try:
+                    file_path.unlink()
+                    deleted_files.append(str(file_path))
+                except Exception:
+                    failed_files.append(str(file_path))
+
+            prefix_path = Path(db_prefix) if db_prefix else None
+            if prefix_path is not None:
+                for directory in (prefix_path.parent, self.app_root / "blast_db"):
+                    try:
+                        if directory.exists() and directory.is_dir() and not any(directory.iterdir()):
+                            directory.rmdir()
+                            removed_dirs.append(str(directory))
+                    except Exception:
+                        pass
+
+        self._clear_local_blast_db_config()
+
+        if action == "detach":
+            summary = (
+                "Local BLAST database removed from settings.\n\n"
+                f"DB prefix: {db_prefix or '(not set)'}\n"
+                "Files on disk: kept"
+            )
+            self._set_results(summary)
+            messagebox.showinfo("BLAST DB removed", "The local BLAST database was removed from settings.")
+            return
+
+        if failed_files:
+            summary = (
+                "Local BLAST database detached, but some files could not be deleted.\n\n"
+                f"DB prefix: {db_prefix or '(not set)'}\n"
+                f"Deleted files: {len(deleted_files)}\n"
+                f"Failed deletions: {len(failed_files)}"
+            )
+            self._set_results(summary)
+            messagebox.showwarning(
+                "Partial deletion",
+                "The BLAST database configuration was cleared, but some files could not be deleted.",
+            )
+            return
+
+        summary = (
+            "Local BLAST database removed and files deleted.\n\n"
+            f"DB prefix: {db_prefix or '(not set)'}\n"
+            f"Deleted files: {len(deleted_files)}\n"
+            f"Removed folders: {len(removed_dirs)}"
+        )
+        self._set_results(summary)
+        messagebox.showinfo("BLAST DB deleted", "The local BLAST database and its files were removed.")
+
     # ------------------------------------------------------------------ menu bar
 
     def _build_menu(self) -> None:
@@ -1243,6 +1408,7 @@ class GeneDraftApp:
         m.add_command(label="Configure BLAST DB...", command=self.configure_local_blast_db)
         m.add_command(label="Build BLAST DB...", command=self.build_local_blast_db)
         m.add_command(label="BLAST DB Info", command=self.show_local_blast_db_info)
+        m.add_command(label="Remove BLAST DB...", command=self.remove_local_blast_db)
 
         m = menu("About")
         m.add_command(label="Information", command=self.show_about_information)
@@ -2426,7 +2592,7 @@ class GeneDraftApp:
             "- No local installation is required for BLAST web.\n\n"
             "BLAST local\n"
             "- Local BLAST uses an already built or newly built BLAST+ database.\n"
-            "- Database creation is available from the BLAST menu.\n"
+            "- Database creation, configuration, and removal are available from the BLAST menu.\n"
             "- Keep BLAST database paths and project paths simple, especially on Windows.\n\n"
             "Python requirements\n"
             "- Python 3\n"
@@ -3064,7 +3230,13 @@ class GeneDraftApp:
             dialog.destroy()
 
         ttk.Button(buttons, text="Cancel", command=dialog.destroy, style="Action.TButton").grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(buttons, text="Save DB", command=submit, style="Primary.TButton").grid(row=0, column=1)
+        ttk.Button(
+            buttons,
+            text="Remove DB",
+            command=lambda: (dialog.destroy(), self.remove_local_blast_db()),
+            style="Action.TButton",
+        ).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(buttons, text="Save DB", command=submit, style="Primary.TButton").grid(row=0, column=2)
 
         dialog.bind("<Escape>", lambda event: dialog.destroy())
         dialog.bind("<Return>", lambda event: submit())
