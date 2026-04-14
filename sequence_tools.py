@@ -45,6 +45,7 @@ class SequenceFeature:
     feature_type: str
     label: str
     strand: str = "+"
+    color: str | None = None
 
 
 @dataclass(slots=True)
@@ -464,7 +465,30 @@ def find_circular_candidates(
     )[:max_candidates]
 
 
+def _normalize_feature_color_value(color_value: str | None) -> str | None:
+    if not color_value:
+        return None
+    value = str(color_value).strip()
+    if len(value) == 7 and value.startswith("#") and all(ch in "0123456789abcdefABCDEF" for ch in value[1:]):
+        return value.upper()
+    return None
+
+
+def _extract_feature_color(qualifiers: dict[str, list[str]]) -> str | None:
+    for key in ("ApEinfo_fwdcolor", "ApEinfo_revcolor", "color"):
+        values = qualifiers.get(key, [])
+        if not values:
+            continue
+        normalized = _normalize_feature_color_value(values[0])
+        if normalized is not None:
+            return normalized
+    return None
+
+
 def _color_for_feature(feature: SequenceFeature) -> str:
+    manual_color = _normalize_feature_color_value(getattr(feature, "color", None))
+    if manual_color is not None:
+        return manual_color
     if getattr(feature, "strand", "+") == "-":
         palette = [
             "#fca5a5",
@@ -709,6 +733,7 @@ def load_sequence_file(path: str | Path) -> tuple[str, str, list[SequenceFeature
                     feature_type=feature.type,
                     label=label,
                     strand="-" if feature.location.strand == -1 else "+",
+                    color=_extract_feature_color(feature.qualifiers),
                 )
             )
 
@@ -1171,6 +1196,7 @@ def fetch_by_accession(
                     feature_type=feat.type,
                     label=label,
                     strand="-" if feat.location.strand == -1 else "+",
+                    color=_extract_feature_color(feat.qualifiers),
                 ))
             return record.id, str(record.seq).upper(), features, db
         except Exception as exc:
@@ -1257,11 +1283,17 @@ def save_genbank(
         end = min(len(cleaned), feature.end_nt)
         if start >= end:
             continue
+        qualifiers = {"label": [feature.label or "feature"]}
+        feature_color = _normalize_feature_color_value(getattr(feature, "color", None))
+        if feature_color is not None:
+            qualifiers["ApEinfo_fwdcolor"] = [feature_color]
+            qualifiers["ApEinfo_revcolor"] = [feature_color]
+            qualifiers["color"] = [feature_color]
         record.features.append(
             SeqFeature(
                 FeatureLocation(start, end, strand=(-1 if feature.strand == "-" else 1)),
                 type=(feature.feature_type or "misc_feature").strip(),
-                qualifiers={"label": [feature.label or "feature"]},
+                qualifiers=qualifiers,
             )
         )
 

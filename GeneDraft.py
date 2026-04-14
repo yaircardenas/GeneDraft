@@ -11,7 +11,7 @@ import sys
 import tempfile
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
 from urllib.parse import urlencode
 import webbrowser
 
@@ -126,6 +126,7 @@ class FeatureEntry:
             feature_type=self.feature_type,
             label=self.label,
             strand=self.strand,
+            color=self.color,
         )
 
 
@@ -1047,7 +1048,7 @@ class GeneDraftApp:
                 end_nt=feature.end_nt,
                 feature_type=feature.feature_type,
                 label=feature.label,
-                color=next(self._feature_colors),
+                color=self._normalize_feature_color_value(getattr(feature, "color", None)) or next(self._feature_colors),
                 strand=self._normalize_feature_strand(feature.strand),
             )
             for feature in loaded_features
@@ -1402,6 +1403,8 @@ class GeneDraftApp:
         m.add_command(label="BLAST Web (Editor)", command=self.run_blast_web_from_selection)
         m.add_command(label="BLAST Web (Results)", command=self.run_blast_web_from_results)
         m.add_separator()
+        m.add_command(label="BLAST Active Selection  Ctrl+B", command=self.run_blast_active_selection)
+        m.add_separator()
         m.add_command(label="BLAST Local (Editor)", command=self.run_blast_local_from_selection)
         m.add_command(label="BLAST Local (Results)", command=self.run_blast_local_from_results)
         m.add_separator()
@@ -1695,7 +1698,9 @@ class GeneDraftApp:
         editor_head.columnconfigure(2, weight=1)
         ttk.Label(editor_head, text="Sequence editor", style="Card.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(editor_head, text="Name", style="Muted.TLabel").grid(row=0, column=1, sticky="e", padx=(14, 6))
-        ttk.Entry(editor_head, textvariable=self.sequence_name, style="Modern.TEntry", width=24).grid(row=0, column=2, sticky="ew")
+        sequence_name_entry = ttk.Entry(editor_head, textvariable=self.sequence_name, style="Modern.TEntry", width=24)
+        sequence_name_entry.grid(row=0, column=2, sticky="ew")
+        self._bind_input_context_menu(sequence_name_entry)
         editor_nav = ttk.Frame(editor_head, style="Card.TFrame")
         editor_nav.grid(row=0, column=3, sticky="e", padx=(12, 0))
         ttk.Button(editor_nav, text="< Previous", command=self.show_previous_search_hit, style="Action.TButton").grid(row=0, column=0, padx=(0, 6))
@@ -2023,6 +2028,8 @@ class GeneDraftApp:
         self._bind_action("<F5>",              self.validate_sequence)
         self._bind_action("<Control-r>",       self.replace_with_reverse_complement)
         self._bind_action("<Control-t>",       self.translate_selection)
+        self._bind_action("<Control-b>",       self.run_blast_active_selection)
+        self._bind_action("<Control-B>",       self.run_blast_active_selection)
         self._bind_action("<Control-g>",       self.go_to_position)
         self._bind_action("<Control-G>",       self.go_to_position)
         self._bind_action("<Control-Alt-z>",   self.undo_biological_operation)
@@ -2040,7 +2047,15 @@ class GeneDraftApp:
         self._bind_action("<Escape>",          self.clear_analysis_marks)
 
     def _bind_action(self, sequence: str, callback) -> None:
-        self.root.bind(sequence, lambda event: self._invoke_action(callback))
+        handler = lambda event: self._invoke_action(callback)
+        self.root.bind(sequence, handler)
+
+        # Text widgets process class bindings before the toplevel receives the
+        # event, so bind shortcuts directly on them to suppress default edits.
+        for widget_name in ("sequence_text", "results_text"):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.bind(sequence, handler)
 
     def _invoke_action(self, callback):
         callback()
@@ -2110,6 +2125,146 @@ class GeneDraftApp:
         widget.tag_add(tk.SEL, "1.0", "end-1c")
         widget.mark_set(tk.INSERT, "1.0")
         widget.see(tk.INSERT)
+
+    def _normalize_feature_color_value(self, color_value: str | None) -> str | None:
+        if not color_value:
+            return None
+        value = str(color_value).strip()
+        if len(value) == 7 and value.startswith("#") and all(ch in "0123456789abcdefABCDEF" for ch in value[1:]):
+            return value.upper()
+        return None
+
+    def _adjust_hex_color(self, color_value: str | None, factor: float) -> str:
+        normalized = self._normalize_feature_color_value(color_value)
+        if normalized is None:
+            return "#0EA5E9"
+        red = max(0, min(255, round(int(normalized[1:3], 16) * factor)))
+        green = max(0, min(255, round(int(normalized[3:5], 16) * factor)))
+        blue = max(0, min(255, round(int(normalized[5:7], 16) * factor)))
+        return f"#{red:02X}{green:02X}{blue:02X}"
+
+    def _widget_has_selection(self, widget: tk.Widget) -> bool:
+        if isinstance(widget, tk.Text):
+            return bool(widget.tag_ranges(tk.SEL))
+        if isinstance(widget, (tk.Entry, ttk.Entry, ttk.Combobox)):
+            try:
+                return bool(widget.selection_present())
+            except tk.TclError:
+                return False
+        return False
+
+    def _select_all_in_input_widget(self, widget: tk.Widget) -> None:
+        widget.focus_set()
+        if isinstance(widget, tk.Text):
+            widget.tag_add(tk.SEL, "1.0", "end-1c")
+            widget.mark_set(tk.INSERT, "1.0")
+            widget.see(tk.INSERT)
+            return
+        if isinstance(widget, (tk.Entry, ttk.Entry, ttk.Combobox)):
+            try:
+                widget.selection_range(0, tk.END)
+                widget.icursor(tk.END)
+            except tk.TclError:
+                pass
+
+    def _copy_all_from_text_widget(self, widget: tk.Text) -> None:
+        self.root.clipboard_clear()
+        self.root.clipboard_append(widget.get("1.0", "end-1c"))
+
+    def _show_input_context_menu(
+        self,
+        event,
+        widget: tk.Widget,
+        menu: tk.Menu,
+        *,
+        editable: bool,
+        has_copy_all: bool = False,
+    ) -> str:
+        try:
+            widget.focus_set()
+        except tk.TclError:
+            pass
+        if isinstance(widget, (tk.Entry, ttk.Entry, ttk.Combobox)):
+            try:
+                widget.icursor(f"@{event.x}")
+            except tk.TclError:
+                pass
+        copy_state = "normal" if self._widget_has_selection(widget) else "disabled"
+        menu.entryconfigure("Copy", state=copy_state)
+        if editable:
+            cut_state = "normal" if copy_state == "normal" else "disabled"
+            paste_state = "normal"
+            try:
+                self.root.clipboard_get()
+            except tk.TclError:
+                paste_state = "disabled"
+            menu.entryconfigure("Cut", state=cut_state)
+            menu.entryconfigure("Paste", state=paste_state)
+        if has_copy_all:
+            menu.entryconfigure("Copy all", state="normal")
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
+
+    def _bind_input_context_menu(
+        self,
+        widget: tk.Widget,
+        *,
+        editable: bool | None = None,
+        include_copy_all: bool = False,
+    ) -> tk.Menu:
+        C = self.colors
+        if editable is None:
+            try:
+                state = str(widget.cget("state")).lower()
+            except tk.TclError:
+                state = "normal"
+            editable = state not in {"disabled", "readonly"}
+
+        menu = tk.Menu(
+            self.root,
+            tearoff=0,
+            bg=C["surface"],
+            fg=C["text"],
+            activebackground=C["accent_soft"],
+            activeforeground=C["accent_dark"],
+        )
+        menu.add_command(label="Copy", command=lambda: widget.event_generate("<<Copy>>"))
+        if editable:
+            menu.add_command(label="Cut", command=lambda: widget.event_generate("<<Cut>>"))
+            menu.add_command(label="Paste", command=lambda: widget.event_generate("<<Paste>>"))
+        if include_copy_all and isinstance(widget, tk.Text):
+            menu.add_command(label="Copy all", command=lambda: self._copy_all_from_text_widget(widget))
+        menu.add_separator()
+        menu.add_command(label="Select all", command=lambda: self._select_all_in_input_widget(widget))
+        widget.bind(
+            "<Button-3>",
+            lambda event, current_widget=widget, current_menu=menu, can_edit=editable, can_copy_all=include_copy_all: (
+                self._show_input_context_menu(
+                    event,
+                    current_widget,
+                    current_menu,
+                    editable=can_edit,
+                    has_copy_all=can_copy_all,
+                )
+            ),
+        )
+        return menu
+
+    def _bind_input_context_menus_in(self, parent: tk.Misc) -> None:
+        for child in parent.winfo_children():
+            if isinstance(child, tk.Text):
+                child_state = str(child.cget("state")).lower()
+                self._bind_input_context_menu(
+                    child,
+                    editable=child_state not in {"disabled"},
+                    include_copy_all=child_state in {"disabled"},
+                )
+            elif isinstance(child, (tk.Entry, ttk.Entry, ttk.Combobox)):
+                self._bind_input_context_menu(child)
+            self._bind_input_context_menus_in(child)
 
     def _replace_sequence_selection(self, new_text: str) -> bool:
         selection = self._get_selection_indices()
@@ -2381,6 +2536,7 @@ class GeneDraftApp:
         dialog.protocol("WM_DELETE_WINDOW", cancel)
         dialog.bind("<Escape>", lambda _event: cancel())
         dialog.bind("<Return>", lambda _event: submit())
+        self._bind_input_context_menu(entry)
         if initial_value:
             entry.selection_range(0, tk.END)
         self._show_modal_dialog(dialog, focus_widget=entry)
@@ -2431,27 +2587,7 @@ class GeneDraftApp:
         scroll_y.grid(row=0, column=1, sticky="ns")
         scroll_x.grid(row=1, column=0, sticky="ew")
 
-        # Right-click menu
-        ctx = tk.Menu(dialog, tearoff=0, bg=C["surface"], fg=C["text"],
-                      activebackground=C["accent_soft"], activeforeground=C["accent_dark"])
-
-        def _copy_selection():
-            try:
-                sel = viewer.get("sel.first", "sel.last")
-            except tk.TclError:
-                return
-            dialog.clipboard_clear()
-            dialog.clipboard_append(sel)
-
-        ctx.add_command(label="Copy", command=_copy_selection)
-
-        def _show_ctx(event):
-            try:
-                ctx.tk_popup(event.x_root, event.y_root)
-            finally:
-                ctx.grab_release()
-
-        viewer.bind("<Button-3>", _show_ctx)
+        self._bind_input_context_menu(viewer, editable=False, include_copy_all=True)
 
     def _show_document_window(self, title: str, subtitle: str, text: str) -> None:
         C = self.colors
@@ -2499,31 +2635,7 @@ class GeneDraftApp:
         viewer.grid(row=0, column=0, sticky="nsew")
         scroll_y.grid(row=0, column=1, sticky="ns")
 
-        ctx = tk.Menu(dialog, tearoff=0, bg=C["surface"], fg=C["text"],
-                      activebackground=C["accent_soft"], activeforeground=C["accent_dark"])
-
-        def _copy_selection() -> None:
-            try:
-                sel = viewer.get("sel.first", "sel.last")
-            except tk.TclError:
-                return
-            dialog.clipboard_clear()
-            dialog.clipboard_append(sel)
-
-        def _copy_all() -> None:
-            dialog.clipboard_clear()
-            dialog.clipboard_append(viewer.get("1.0", "end-1c"))
-
-        ctx.add_command(label="Copy", command=_copy_selection)
-        ctx.add_command(label="Copy all", command=_copy_all)
-
-        def _show_ctx(event) -> None:
-            try:
-                ctx.tk_popup(event.x_root, event.y_root)
-            finally:
-                ctx.grab_release()
-
-        viewer.bind("<Button-3>", _show_ctx)
+        self._bind_input_context_menu(viewer, editable=False, include_copy_all=True)
 
     def _about_information_text(self) -> str:
         return (
@@ -2619,6 +2731,7 @@ class GeneDraftApp:
             "- F5: Validate\n"
             "- Ctrl+R: Reverse complement\n"
             "- Ctrl+T: Translate selection\n"
+            "- Ctrl+B: BLAST active selection\n"
             "- Ctrl+Alt+S: Secondary structure\n"
             "- Ctrl+G: Go to position\n\n"
             "Analysis\n"
@@ -2728,6 +2841,36 @@ class GeneDraftApp:
         self._show_document_window("GeneDraft Contact", "Author and contact information", self._about_contact_text())
 
     # ------------------------------------------------------------------ BLAST dispatch
+
+    def _get_active_blast_sequence(self) -> tuple[str, str] | None:
+        focused_widget = self.root.focus_get()
+        if focused_widget is self.results_text:
+            candidates = (
+                (self.results_text, "Results"),
+                (self.sequence_text, "Editor"),
+            )
+        else:
+            candidates = (
+                (self.sequence_text, "Editor"),
+                (self.results_text, "Results"),
+            )
+        for widget, source_name in candidates:
+            sequence = self._get_clean_selection_from_widget(widget)
+            if sequence:
+                return sequence, source_name
+        return None
+
+    def run_blast_active_selection(self) -> None:
+        selected = self._get_active_blast_sequence()
+        if selected is None:
+            messagebox.showinfo("No selection", "Select a sequence in the editor or Results to run BLAST.")
+            return
+        sequence, _source_name = selected
+        db_prefix = self._normalize_blast_db_prefix(self.local_blast_db_var.get())
+        if db_prefix and self._blast_db_prefix_exists(db_prefix):
+            self._run_blast_local(sequence)
+            return
+        self._run_blast_web(sequence)
 
     def run_blast_web_from_selection(self) -> None:
         sequence = self._get_clean_selection_from_widget(self.sequence_text)
@@ -3238,6 +3381,7 @@ class GeneDraftApp:
         ).grid(row=0, column=1, padx=(0, 8))
         ttk.Button(buttons, text="Save DB", command=submit, style="Primary.TButton").grid(row=0, column=2)
 
+        self._bind_input_context_menus_in(container)
         dialog.bind("<Escape>", lambda event: dialog.destroy())
         dialog.bind("<Return>", lambda event: submit())
         dialog.update_idletasks()
@@ -3374,6 +3518,7 @@ class GeneDraftApp:
         ).grid(row=0, column=1, padx=(0, 8))
         ttk.Button(buttons, text="Build DB", command=submit,         style="Primary.TButton").grid(row=0, column=2)
 
+        self._bind_input_context_menus_in(container)
         dialog.bind("<Escape>", lambda event: dialog.destroy())
         dialog.bind("<Return>", lambda event: submit())
         dialog.update_idletasks()
@@ -3528,14 +3673,21 @@ class GeneDraftApp:
                     feature_type=feature.feature_type,
                     label=feature.label,
                     strand=self._normalize_feature_strand(feature.strand),
+                    color=feature.color,
                 )
             )
         return collected
 
     def _feature_display_color(self, feature: FeatureEntry | SequenceFeature) -> str:
+        manual_color = self._normalize_feature_color_value(getattr(feature, "color", None))
+        if manual_color is not None:
+            return manual_color
         return "#0EA5E9" if self._normalize_feature_strand(feature.strand) == "+" else "#F87171"
 
     def _feature_border_color(self, feature: FeatureEntry | SequenceFeature) -> str:
+        manual_color = self._normalize_feature_color_value(getattr(feature, "color", None))
+        if manual_color is not None:
+            return self._adjust_hex_color(manual_color, 0.78)
         return "#38BDF8" if self._normalize_feature_strand(feature.strand) == "+" else "#FCA5A5"
 
     def _format_coordinates(self, start_nt: int, end_nt: int, strand: str | None = None) -> str:
@@ -4249,7 +4401,7 @@ class GeneDraftApp:
                     end_nt=feature.end_nt,
                     feature_type=feature.feature_type,
                     label=feature.label,
-                    color=next(self._feature_colors),
+                    color=self._normalize_feature_color_value(getattr(feature, "color", None)) or next(self._feature_colors),
                     strand=self._normalize_feature_strand(feature.strand),
                 )
                 for feature in loaded_features
@@ -4512,7 +4664,7 @@ class GeneDraftApp:
                     end_nt=feature.end_nt,
                     feature_type=feature.feature_type,
                     label=feature.label,
-                    color=next(self._feature_colors),
+                    color=self._normalize_feature_color_value(getattr(feature, "color", None)) or next(self._feature_colors),
                     strand=self._normalize_feature_strand(feature.strand),
                 )
                 for feature in loaded_features
@@ -5204,6 +5356,7 @@ class GeneDraftApp:
                 start_nt=feature.start_nt, end_nt=feature.end_nt,
                 feature_type=feature.feature_type, label=feature.label,
                 strand=self._normalize_feature_strand(feature.strand),
+                color=feature.color,
             )
             for feature in self.features
         ]
@@ -5315,6 +5468,7 @@ class GeneDraftApp:
         dialog.protocol("WM_DELETE_WINDOW", cancel)
         dialog.bind("<Escape>", lambda event: cancel())
         dialog.bind("<Return>", lambda event: submit())
+        self._bind_input_context_menus_in(container)
         label_entry.selection_range(0, tk.END)
         self._show_modal_dialog(dialog, focus_widget=label_entry)
 
@@ -5333,6 +5487,7 @@ class GeneDraftApp:
         initial_start: int,
         initial_end: int,
         initial_strand: str = "+",
+        initial_color: str | None = None,
     ) -> dict[str, object] | None:
         dialog, container = self._create_modal_dialog(
             dialog_title,
@@ -5379,14 +5534,58 @@ class GeneDraftApp:
             state="readonly",
         ).grid(row=6, column=0, sticky="ew", pady=(6, 0))
 
+        ttk.Label(container, text="Color", style="SectionHead.TLabel").grid(row=7, column=0, sticky="w", pady=(14, 0))
+        color_row = ttk.Frame(container, style="Card.TFrame")
+        color_row.grid(row=8, column=0, sticky="ew", pady=(6, 0))
+        color_row.columnconfigure(1, weight=1)
+        color_var = tk.StringVar(
+            value=self._normalize_feature_color_value(initial_color)
+            or self._normalize_feature_color_value(next(self._feature_colors))
+            or "#93C5FD"
+        )
+        color_swatch = tk.Label(
+            color_row,
+            width=4,
+            bg=color_var.get(),
+            relief="solid",
+            bd=1,
+            highlightthickness=1,
+            highlightbackground=self.colors["border"],
+        )
+        color_swatch.grid(row=0, column=0, sticky="w", padx=(0, 10), ipady=4)
+        color_value_label = ttk.Label(color_row, text=color_var.get(), style="Muted.TLabel")
+        color_value_label.grid(row=0, column=1, sticky="w")
+
+        def refresh_color_preview() -> None:
+            selected_color = self._normalize_feature_color_value(color_var.get()) or "#93C5FD"
+            color_var.set(selected_color)
+            color_swatch.configure(bg=selected_color)
+            color_value_label.configure(text=selected_color)
+
+        def choose_color() -> None:
+            _rgb, selected_color = colorchooser.askcolor(
+                color=color_var.get(),
+                parent=dialog,
+                title="Choose feature color",
+            )
+            normalized = self._normalize_feature_color_value(selected_color)
+            if normalized is None:
+                return
+            color_var.set(normalized)
+            refresh_color_preview()
+
+        ttk.Button(color_row, text="Choose color", command=choose_color, style="Action.TButton").grid(
+            row=0, column=2, sticky="e", padx=(10, 0)
+        )
+
         ttk.Label(
             container,
-            text="Choose a common type or enter a custom one. Strand is stored as + or -.",
+            text="Choose a common type or enter a custom one. Strand is stored as + or -. Color is used in the editor, minimap, and exported maps.",
             style="Muted.TLabel",
-        ).grid(row=7, column=0, sticky="w", pady=(10, 0))
+        ).grid(row=9, column=0, sticky="w", pady=(10, 0))
 
         buttons = ttk.Frame(container, style="Card.TFrame")
-        buttons.grid(row=8, column=0, sticky="e", pady=(20, 0))
+        buttons.grid(row=10, column=0, sticky="e", pady=(20, 0))
         result: dict[str, object] = {}
 
         def submit() -> None:
@@ -5410,6 +5609,7 @@ class GeneDraftApp:
             result["start_nt"] = start_nt
             result["end_nt"] = end_nt
             result["strand"] = self.feature_strand_label_to_value.get(strand_var.get(), "+")
+            result["color"] = self._normalize_feature_color_value(color_var.get()) or "#93C5FD"
             dialog.destroy()
 
         def cancel() -> None:
@@ -5421,7 +5621,9 @@ class GeneDraftApp:
         dialog.protocol("WM_DELETE_WINDOW", cancel)
         dialog.bind("<Escape>", lambda event: cancel())
         dialog.bind("<Return>", lambda event: submit())
+        self._bind_input_context_menus_in(container)
         label_entry.selection_range(0, tk.END)
+        refresh_color_preview()
         self._show_modal_dialog(dialog, focus_widget=label_entry)
 
         if not result:
@@ -5444,6 +5646,7 @@ class GeneDraftApp:
             initial_start=start_nt,
             initial_end=end_nt,
             initial_strand=initial_strand,
+            initial_color=None,
         )
         if feature_details is None:
             return
@@ -5453,7 +5656,7 @@ class GeneDraftApp:
             end_nt=int(feature_details["end_nt"]),
             feature_type=str(feature_details["type"]).strip() or "misc_feature",
             label=str(feature_details["label"]).strip() or f"feature_{len(self.features) + 1}",
-            color=next(self._feature_colors),
+            color=self._normalize_feature_color_value(str(feature_details.get("color", ""))) or next(self._feature_colors),
             strand=self._normalize_feature_strand(str(feature_details["strand"])),
         )
         self.features.append(feature)
@@ -5466,7 +5669,8 @@ class GeneDraftApp:
             f"Label: {feature.label}\n"
             f"Type: {feature.feature_type}\n"
             f"Range: {feature.start_nt}-{feature.end_nt}\n"
-            f"Strand: {feature.strand}"
+            f"Strand: {feature.strand}\n"
+            f"Color: {feature.color}"
         )
 
     def edit_selected_feature(self) -> None:
@@ -5489,6 +5693,7 @@ class GeneDraftApp:
             initial_start=feature.start_nt,
             initial_end=feature.end_nt,
             initial_strand=feature.strand,
+            initial_color=feature.color,
         )
         if updated is None:
             return
@@ -5499,6 +5704,7 @@ class GeneDraftApp:
         feature.feature_type = str(updated["type"]).strip() or "misc_feature"
         feature.label = str(updated["label"]).strip() or feature.label
         feature.strand = self._normalize_feature_strand(str(updated["strand"]))
+        feature.color = self._normalize_feature_color_value(str(updated.get("color", ""))) or feature.color
         self._refresh_feature_table()
         self._redraw_features()
         self.feature_table.selection_set(str(feature_index))
@@ -5508,7 +5714,8 @@ class GeneDraftApp:
             f"Label: {feature.label}\n"
             f"Type: {feature.feature_type}\n"
             f"Range: {feature.start_nt}-{feature.end_nt}\n"
-            f"Strand: {feature.strand}"
+            f"Strand: {feature.strand}\n"
+            f"Color: {feature.color}"
         )
 
     def delete_selected_feature(self) -> None:
